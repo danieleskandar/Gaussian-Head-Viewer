@@ -102,6 +102,9 @@ class GaussianRenderBase:
     def set_scale_modifier(self, modifier: float):
         raise NotImplementedError()
     
+    def set_frame_modifier(self, modifier: float):
+        pass
+    
     def set_render_mod(self, mod: int):
         raise NotImplementedError()
     
@@ -173,6 +176,9 @@ class OpenGLRenderer(GaussianRenderBase):
    
     def set_scale_modifier(self, modifier):
         util.set_uniform_1f(self.program, modifier, "scale_modifier")
+
+    def set_frame_modifier(self, modifier):
+        util.set_uniform_1f(self.program, modifier, "frame_modifier")
 
     def set_render_mod(self, mod: int):
         util.set_uniform_1int(self.program, mod, "render_mod")

@@ -31,10 +31,11 @@ g_renderer_list = [
 g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
+g_frame_modifier = 1
 g_auto_sort = False
 g_show_control_win = True
 g_show_help_win = True
-g_show_camera_win = False
+g_show_camera_win = True
 g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 7
 
@@ -102,6 +103,7 @@ def update_activated_renderer_state(gaus: util_gau.GaussianData):
     g_renderer.update_gaussian_data(gaus)
     g_renderer.sort_and_update(g_camera)
     g_renderer.set_scale_modifier(g_scale_modifier)
+    g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
     g_renderer.set_render_mod(g_render_mode - 3)
     g_renderer.update_camera_pose(g_camera)
     g_renderer.update_camera_intrin(g_camera)
@@ -113,7 +115,7 @@ def window_resize_callback(window, width, height):
     g_renderer.set_render_reso(width, height)
 
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_auto_sort, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_auto_sort, \
         g_show_control_win, g_show_help_win, g_show_camera_win, \
         g_render_mode, g_render_mode_tables
         
@@ -214,7 +216,7 @@ def main():
                 
                 # scale modifier
                 changed, g_scale_modifier = imgui.slider_float(
-                    "", g_scale_modifier, 0.1, 10, "scale modifier = %.3f"
+                    "scale", g_scale_modifier, 0.1, 10, "scale modifier = %.3f"
                 )
                 imgui.same_line()
                 if imgui.button(label="reset"):
@@ -223,6 +225,14 @@ def main():
                     
                 if changed:
                     g_renderer.set_scale_modifier(g_scale_modifier)
+
+                # frames
+                changed, g_frame_modifier = imgui.slider_int(
+                    "frame", g_frame_modifier, 1, 300, "Frames = %d"
+                )
+
+                if changed:
+                    g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
                 
                 # render mode
                 changed, g_render_mode = imgui.combo("shading", g_render_mode, g_render_mode_tables)

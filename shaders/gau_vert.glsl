@@ -50,6 +50,7 @@ uniform vec3 hfovxy_focal;
 uniform vec3 cam_pos;
 uniform int sh_dim;
 uniform float scale_modifier;
+uniform float frame_modifier;
 uniform int render_mod;  // > 0 render 0-ith SH dim, -1 depth, -2 bill board, -3 gaussian
 
 out vec3 color;
@@ -120,7 +121,7 @@ void main()
 	int boxid = gi[gl_InstanceID];
 	int total_dim = 3 + 4 + 3 + 1 + sh_dim;
 	int start = boxid * total_dim;
-	vec4 g_pos = vec4(get_vec3(start + POS_IDX), 1.f);
+	vec4 g_pos = vec4(get_vec3(start + POS_IDX) * frame_modifier, 1.f);
     vec4 g_pos_view = view_matrix * g_pos;
     vec4 g_pos_screen = projection_matrix * g_pos_view;
 	g_pos_screen.xyz = g_pos_screen.xyz / g_pos_screen.w;
