@@ -226,7 +226,7 @@ def main():
                 if changed:
                     g_renderer.set_scale_modifier(g_scale_modifier)
 
-                # frames
+                # frame modifier
                 changed, g_frame_modifier = imgui.slider_int(
                     "frame", g_frame_modifier, 1, 300, "Frames = %d"
                 )
@@ -331,7 +331,7 @@ def main():
 
 if __name__ == "__main__":
     global args
-    parser = argparse.ArgumentParser(description="NeUVF editor with optional HiDPI support.")
+    parser = argparse.ArgumentParser(description="Dynamic Gaussian Visualizer")
     parser.add_argument("--hidpi", action="store_true", help="Enable HiDPI scaling for the interface.")
     args = parser.parse_args()
 
