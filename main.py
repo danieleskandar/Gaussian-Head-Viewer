@@ -32,6 +32,7 @@ g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_frame_modifier = 1
+g_show_input_init = 0
 g_auto_sort = False
 g_show_control_win = True
 g_show_help_win = True
@@ -40,7 +41,7 @@ g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:
 g_render_mode = 7
 
 def impl_glfw_init():
-    window_name = "NeUVF editor"
+    window_name = "Dynamic Gaussian Visualizer"
 
     if not glfw.init():
         print("Could not initialize OpenGL context")
@@ -115,7 +116,7 @@ def window_resize_callback(window, width, height):
     g_renderer.set_render_reso(width, height)
 
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_auto_sort, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_auto_sort, \
         g_show_control_win, g_show_help_win, g_show_camera_win, \
         g_render_mode, g_render_mode_tables
         
@@ -147,8 +148,9 @@ def main():
     g_renderer = g_renderer_list[g_renderer_idx]
 
     # gaussian data
+    input_gaussians = None
     gaussians = util_gau.naive_gaussian()
-    update_activated_renderer_state(gaussians)
+    update_activated_renderer_state(gaussians)    
     
     # settings
     while not glfw.window_should_close(window):
@@ -196,7 +198,7 @@ def main():
                 imgui.text(f"# of Gaus = {len(gaussians)}")
                 if imgui.button(label='open ply'):
                     file_path = filedialog.askopenfilename(title="open ply",
-                        initialdir="C:\\Users\\MSI_NB\\Downloads\\viewers",
+                        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models",
                         filetypes=[('ply file', '.ply')]
                         )
                     if file_path:
@@ -206,6 +208,31 @@ def main():
                             g_renderer.sort_and_update(g_camera)
                         except RuntimeError as e:
                             pass
+
+                if imgui.button(label='open input ply'):
+                    file_path = filedialog.askopenfilename(title="open input ply",
+                        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models",
+                        filetypes=[('ply file', '.ply')]
+                        )
+                    if file_path:
+                        try:
+                            input_gaussians = util_gau.load_input_ply(file_path)
+                            g_show_input_init = 1
+                            g_frame_modifier = 300
+                            g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
+                            g_renderer.update_gaussian_data(input_gaussians)
+                            g_renderer.sort_and_update(g_camera)                            
+                        except RuntimeError as e:
+                            pass
+
+                changed, g_show_input_init = imgui.checkbox( "show intput init", g_show_input_init,)
+                
+                if changed:
+                    if g_show_input_init:
+                        if input_gaussians is not None:
+                            g_renderer.update_gaussian_data(input_gaussians)
+                    else:
+                        g_renderer.update_gaussian_data(gaussians)
                 
                 # camera fov
                 changed, g_camera.fovy = imgui.slider_float(
