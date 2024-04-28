@@ -58,6 +58,28 @@ def naive_gaussian():
 
     return GaussianData( gau_xyz, gau_rot, gau_s, gau_a, gau_c)
 
+def random_gaussian(gaussians):
+    num_pts = gaussians.xyz.shape[0]
+
+    # Generate means
+    min_values = np.min(gaussians.xyz, axis=0)
+    max_values = np.max(gaussians.xyz, axis=0)
+    xyz = np.random.uniform(min_values, max_values, size=gaussians.xyz.shape).astype(np.float32)
+
+    # Generate opacities
+    opacities = np.ones((num_pts, 1)).astype(np.float32)
+
+    # Generate scales
+    scales = np.random.random((num_pts, 3)).astype(np.float32) * 0.5
+
+    # Generate rotations
+    rots = np.concatenate((np.ones((num_pts, 1)), np.zeros((num_pts, 3))), axis=1).astype(np.float32)
+
+    # Generate colors
+    rgb = np.random.random((num_pts, 3)).astype(np.float32)
+
+    return GaussianData(xyz, rots, scales, opacities, rgb)
+
 
 def load_ply(path):
     max_sh_degree = 3
@@ -71,8 +93,8 @@ def load_ply(path):
     xyz = np.stack((x, y, z), axis=1)
     xyz = xyz.astype(np.float32)
 
-    # num_points
-    num_points = xyz.shape[0]
+    # num_pts
+    num_pts = xyz.shape[0]
     
     # Extract opacities
     opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
@@ -82,7 +104,7 @@ def load_ply(path):
     # Extract scales
     scale_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")]
     scale_names = sorted(scale_names, key = lambda x: int(x.split('_')[-1]))
-    scales = np.zeros((num_points, len(scale_names)))
+    scales = np.zeros((num_pts, len(scale_names)))
     for idx, attr_name in enumerate(scale_names):
         scales[:, idx] = np.asarray(plydata.elements[0][attr_name])
     scales = np.exp(scales)
@@ -91,14 +113,14 @@ def load_ply(path):
     # Extract rotations
     rot_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("rot")]
     rot_names = sorted(rot_names, key = lambda x: int(x.split('_')[-1]))
-    rots = np.zeros((num_points, len(rot_names)))
+    rots = np.zeros((num_pts, len(rot_names)))
     for idx, attr_name in enumerate(rot_names):
         rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
     rots = rots / np.linalg.norm(rots, axis=-1, keepdims=True)
     rots = rots.astype(np.float32)
 
     # Extract directional coefficients
-    features_dc = np.zeros((num_points, 3, 1))
+    features_dc = np.zeros((num_pts, 3, 1))
     features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
     features_dc[:, 1, 0] = np.asarray(plydata.elements[0]["f_dc_1"])
     features_dc[:, 2, 0] = np.asarray(plydata.elements[0]["f_dc_2"])
@@ -107,7 +129,7 @@ def load_ply(path):
     extra_f_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("f_rest_")]
     extra_f_names = sorted(extra_f_names, key = lambda x: int(x.split('_')[-1]))
     assert len(extra_f_names) == 3 * (max_sh_degree + 1) ** 2 - 3
-    features_extra = np.zeros((num_points, len(extra_f_names)))
+    features_extra = np.zeros((num_pts, len(extra_f_names)))
     for idx, attr_name in enumerate(extra_f_names):
         features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
     # Reshape (P, F*SH_coeffs) to (P, F, SH_coeffs except DC)
@@ -131,17 +153,17 @@ def load_input_ply(path):
     xyz = np.stack((x, y, z), axis=1)
     xyz = xyz.astype(np.float32)
 
-    # num_points
-    num_points = xyz.shape[0]
+    # num_pts
+    num_pts = xyz.shape[0]
 
     # Generate opacities
-    opacities = np.ones((num_points, 1)).astype(np.float32)
+    opacities = np.ones((num_pts, 1)).astype(np.float32)
 
     # Generate scales
-    scales = np.random.random((num_points, 3)).astype(np.float32) * 0.5
+    scales = np.random.random((num_pts, 3)).astype(np.float32) * 0.5
 
     # Generate rotations
-    rots = np.concatenate((np.ones((num_points, 1)), np.zeros((num_points, 3))), axis=1).astype(np.float32)
+    rots = np.concatenate((np.ones((num_pts, 1)), np.zeros((num_pts, 3))), axis=1).astype(np.float32)
 
     # Extract colors
     r = np.asarray(plydata.elements[0]["red"]) / 255

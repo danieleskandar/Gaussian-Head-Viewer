@@ -32,7 +32,8 @@ g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_frame_modifier = 1
-g_show_input_init = 0
+g_show_input_init = False
+g_show_random_init = False
 g_auto_sort = False
 g_show_control_win = True
 g_show_help_win = True
@@ -116,7 +117,7 @@ def window_resize_callback(window, width, height):
     g_renderer.set_render_reso(width, height)
 
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_auto_sort, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_show_random_init, g_auto_sort, \
         g_show_control_win, g_show_help_win, g_show_camera_win, \
         g_render_mode, g_render_mode_tables
         
@@ -150,6 +151,7 @@ def main():
     # gaussian data
     input_gaussians = None
     gaussians = util_gau.naive_gaussian()
+    random_gaussians = util_gau.random_gaussian(gaussians)
     update_activated_renderer_state(gaussians)    
     
     # settings
@@ -204,6 +206,9 @@ def main():
                     if file_path:
                         try:
                             gaussians = util_gau.load_ply(file_path)
+                            random_gaussians = util_gau.random_gaussian(gaussians)
+                            g_show_input_init = False
+                            g_show_random_init = False
                             g_renderer.update_gaussian_data(gaussians)
                             g_renderer.sort_and_update(g_camera)
                         except RuntimeError as e:
@@ -217,7 +222,8 @@ def main():
                     if file_path:
                         try:
                             input_gaussians = util_gau.load_input_ply(file_path)
-                            g_show_input_init = 1
+                            g_show_input_init = True
+                            g_show_random_init = False
                             g_frame_modifier = 300
                             g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
                             g_renderer.update_gaussian_data(input_gaussians)
@@ -226,11 +232,21 @@ def main():
                             pass
 
                 changed, g_show_input_init = imgui.checkbox( "show intput init", g_show_input_init,)
-                
+
                 if changed:
                     if g_show_input_init:
+                        g_show_random_init = False
                         if input_gaussians is not None:
                             g_renderer.update_gaussian_data(input_gaussians)
+                    else:
+                        g_renderer.update_gaussian_data(gaussians)
+
+                changed, g_show_random_init = imgui.checkbox( "show random init", g_show_random_init,)
+
+                if changed:
+                    if g_show_random_init:
+                        g_show_input_init = False
+                        g_renderer.update_gaussian_data(random_gaussians)
                     else:
                         g_renderer.update_gaussian_data(gaussians)
                 
@@ -318,14 +334,14 @@ def main():
                 g_camera.rot_sensitivity = 0.02
 
             changed, g_camera.trans_sensitivity = imgui.slider_float(
-                    "m", g_camera.trans_sensitivity, 0.001, 0.03, "move speed = %.3f"
+                    "m", g_camera.trans_sensitivity, 0.001, 2, "move speed = %.3f"
                 )
             imgui.same_line()
             if imgui.button(label="reset m"):
                 g_camera.trans_sensitivity = 0.01
 
             changed, g_camera.zoom_sensitivity = imgui.slider_float(
-                    "z", g_camera.zoom_sensitivity, 0.001, 0.05, "zoom speed = %.3f"
+                    "z", g_camera.zoom_sensitivity, 0.001, 2, "zoom speed = %.3f"
                 )
             imgui.same_line()
             if imgui.button(label="reset z"):
