@@ -27,7 +27,7 @@ class Camera:
         self.is_leftmouse_pressed = False
         self.is_rightmouse_pressed = False
         
-        self.rot_sensitivity = 0.02
+        self.rot_sensitivity = 0.002
         self.trans_sensitivity = 0.01
         self.zoom_sensitivity = 0.08
         self.roll_sensitivity = 0.03

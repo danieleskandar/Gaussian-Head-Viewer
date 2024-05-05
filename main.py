@@ -13,6 +13,8 @@ import sys
 import argparse
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase
 
+N_HAIR_PTS = 60000
+N_HEAD_PTS = 223978
 
 # Add the directory containing main.py to the Python path
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -32,6 +34,7 @@ g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_frame_modifier = 1
+g_part_slider = 1
 g_show_input_init = False
 g_show_random_init = False
 g_auto_sort = False
@@ -39,6 +42,8 @@ g_show_control_win = True
 g_show_help_win = True
 g_show_camera_win = True
 g_show_head_avatar_win = True
+g_show_hair = True
+g_show_head = True
 g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 7
 
@@ -117,8 +122,18 @@ def window_resize_callback(window, width, height):
     g_camera.update_resolution(height, width)
     g_renderer.set_render_reso(width, height)
 
+def part_selection_callback(gaussians):
+    temp_gaussians = util_gau.GaussianData(
+            gaussians.xyz[:g_part_slider, :],
+            gaussians.rot[:g_part_slider, :],
+            gaussians.scale[:g_part_slider, :],
+            gaussians.opacity[:g_part_slider, :],
+            gaussians.sh[:g_part_slider, :],
+        )
+    g_renderer.update_gaussian_data(temp_gaussians)    
+
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_show_random_init, g_auto_sort, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_part_slider, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, \
         g_show_control_win, g_show_help_win, g_show_camera_win, g_show_head_avatar_win, \
         g_render_mode, g_render_mode_tables
         
@@ -338,7 +353,7 @@ def main():
                 )
             imgui.same_line()
             if imgui.button(label="reset r"):
-                g_camera.rot_sensitivity = 0.02
+                g_camera.rot_sensitivity = 0.002
 
             changed, g_camera.trans_sensitivity = imgui.slider_float(
                     "m", g_camera.trans_sensitivity, 0.001, 2, "move speed = %.3f"
@@ -369,7 +384,13 @@ def main():
                 g_camera.target = np.array([0.6508578 ,  0.16832292, -0.25769246]).astype(np.float32)
                 g_camera.up = np.array([-0.20867014, -0.8732953 , -0.4402408]).astype(np.float32)
                 g_camera.is_pose_dirty = True
-            
+
+            changed, g_part_slider = imgui.slider_int(
+                    "part", g_part_slider, 1, 370320, "%d"
+                )
+            if changed:
+                part_selection_callback(gaussians)
+
             imgui.end()
 
         if g_show_help_win:
