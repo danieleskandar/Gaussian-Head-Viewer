@@ -38,6 +38,7 @@ g_auto_sort = False
 g_show_control_win = True
 g_show_help_win = True
 g_show_camera_win = True
+g_show_head_avatar_win = True
 g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 7
 
@@ -118,7 +119,7 @@ def window_resize_callback(window, width, height):
 
 def main():
     global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_show_random_init, g_auto_sort, \
-        g_show_control_win, g_show_help_win, g_show_camera_win, \
+        g_show_control_win, g_show_help_win, g_show_camera_win, g_show_head_avatar_win, \
         g_render_mode, g_render_mode_tables
         
     imgui.create_context()
@@ -128,7 +129,7 @@ def main():
     impl = GlfwRenderer(window)
     root = tk.Tk()  # used for file dialog
     root.withdraw()
-    
+   
     glfw.set_cursor_pos_callback(window, cursor_pos_callback)
     glfw.set_mouse_button_callback(window, mouse_button_callback)
     glfw.set_scroll_callback(window, wheel_callback)
@@ -153,6 +154,9 @@ def main():
     gaussians = util_gau.naive_gaussian()
     random_gaussians = util_gau.random_gaussian(gaussians)
     update_activated_renderer_state(gaussians)    
+
+    # maximize window
+    glfw.maximize_window(window)
     
     # settings
     while not glfw.window_should_close(window):
@@ -179,6 +183,9 @@ def main():
                 )
                 clicked, g_show_camera_win = imgui.menu_item(
                     "Show Camera Control", None, g_show_camera_win
+                )
+                clicked, g_show_head_avatar_win = imgui.menu_item(
+                    "Show Head Avatar Control", None, g_show_head_avatar_win
                 )
                 imgui.end_menu()
             imgui.end_main_menu_bar()
@@ -353,6 +360,17 @@ def main():
             imgui.same_line()
             if imgui.button(label="reset ro"):
                 g_camera.roll_sensitivity = 0.03
+
+        if g_show_head_avatar_win:
+            imgui.begin("Head Avatar Control", True)
+            
+            if imgui.button(label="Re-center Head Avatar"):
+                g_camera.position = np.array([-2.0607586, -0.5666658,  0.7943931]).astype(np.float32)
+                g_camera.target = np.array([0.6508578 ,  0.16832292, -0.25769246]).astype(np.float32)
+                g_camera.up = np.array([-0.20867014, -0.8732953 , -0.4402408]).astype(np.float32)
+                g_camera.is_pose_dirty = True
+            
+            imgui.end()
 
         if g_show_help_win:
             imgui.begin("Help", True)
