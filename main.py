@@ -34,7 +34,7 @@ g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_frame_modifier = 1
-g_part_slider = 1
+g_slice = 1
 g_show_input_init = False
 g_show_random_init = False
 g_auto_sort = False
@@ -44,6 +44,8 @@ g_show_camera_win = True
 g_show_head_avatar_win = True
 g_show_hair = True
 g_show_head = True
+g_use_seg_colors = False
+g_color = [1, 1, 1]
 g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 7
 
@@ -107,8 +109,8 @@ def update_camera_intrin_lazy():
         g_renderer.update_camera_intrin(g_camera)
         g_camera.is_intrin_dirty = False
 
-def update_activated_renderer_state(gaus: util_gau.GaussianData):
-    g_renderer.update_gaussian_data(gaus)
+def update_activated_renderer_state(gaussians: util_gau.GaussianData):
+    render(gaussians)
     g_renderer.sort_and_update(g_camera)
     g_renderer.set_scale_modifier(g_scale_modifier)
     g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
@@ -122,18 +124,32 @@ def window_resize_callback(window, width, height):
     g_camera.update_resolution(height, width)
     g_renderer.set_render_reso(width, height)
 
-def part_selection_callback(gaussians):
-    temp_gaussians = util_gau.GaussianData(
-            gaussians.xyz[:g_part_slider, :],
-            gaussians.rot[:g_part_slider, :],
-            gaussians.scale[:g_part_slider, :],
-            gaussians.opacity[:g_part_slider, :],
-            gaussians.sh[:g_part_slider, :],
+def render(gaussians):
+    g_renderer.update_gaussian_data(segment(slice(gaussians)))
+
+def slice(gaussians):
+    return util_gau.GaussianData(
+            gaussians.xyz[:g_slice, :],
+            gaussians.rot[:g_slice, :],
+            gaussians.scale[:g_slice, :],
+            gaussians.opacity[:g_slice, :],
+            gaussians.sh[:g_slice, :],
         )
-    g_renderer.update_gaussian_data(temp_gaussians)    
+
+def segment(gaussians):
+    if g_use_seg_colors:
+        return util_gau.GaussianData(
+            gaussians.xyz,
+            gaussians.rot,
+            gaussians.scale,
+            gaussians.opacity,
+            np.tile(g_color, (gaussians.xyz.shape[0], 1)).astype(np.float32),
+        )
+    return gaussians
+
 
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_part_slider, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_slice, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, g_color, g_use_seg_colors, \
         g_show_control_win, g_show_help_win, g_show_camera_win, g_show_head_avatar_win, \
         g_render_mode, g_render_mode_tables
         
@@ -215,9 +231,7 @@ def main():
 
                 imgui.text(f"fps = {imgui.get_io().framerate:.1f}")
 
-                changed, g_renderer.reduce_updates = imgui.checkbox(
-                        "reduce updates", g_renderer.reduce_updates,
-                    )
+                changed, g_renderer.reduce_updates = imgui.checkbox( "reduce updates", g_renderer.reduce_updates,)
 
                 imgui.text(f"# of Gaus = {len(gaussians)}")
                 if imgui.button(label='open ply'):
@@ -231,7 +245,7 @@ def main():
                             random_gaussians = util_gau.random_gaussian(gaussians)
                             g_show_input_init = False
                             g_show_random_init = False
-                            g_renderer.update_gaussian_data(gaussians)
+                            render(gaussians)
                             g_renderer.sort_and_update(g_camera)
                         except RuntimeError as e:
                             pass
@@ -261,7 +275,7 @@ def main():
                         if input_gaussians is not None:
                             g_renderer.update_gaussian_data(input_gaussians)
                     else:
-                        g_renderer.update_gaussian_data(gaussians)
+                        render(gaussians)
 
                 changed, g_show_random_init = imgui.checkbox( "show random init", g_show_random_init,)
 
@@ -270,7 +284,7 @@ def main():
                         g_show_input_init = False
                         g_renderer.update_gaussian_data(random_gaussians)
                     else:
-                        g_renderer.update_gaussian_data(gaussians)
+                        render(gaussians)
                 
                 # camera fov
                 changed, g_camera.fovy = imgui.slider_float(
@@ -385,11 +399,17 @@ def main():
                 g_camera.up = np.array([-0.20867014, -0.8732953 , -0.4402408]).astype(np.float32)
                 g_camera.is_pose_dirty = True
 
-            changed, g_part_slider = imgui.slider_int(
-                    "part", g_part_slider, 1, 370320, "%d"
-                )
+            changed, g_slice = imgui.slider_int("slice", g_slice, 1, 370320, "%d" )
             if changed:
-                part_selection_callback(gaussians)
+                render(gaussians)
+
+            changed, g_use_seg_colors = imgui.checkbox( "use segmentation colors", g_use_seg_colors)
+            if changed:
+                render(gaussians)
+            
+            changed, g_color = imgui.color_edit3("Color", *g_color)
+            if (changed):
+                render(gaussians)
 
             imgui.end()
 
