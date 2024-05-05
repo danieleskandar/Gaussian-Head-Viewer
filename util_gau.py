@@ -59,18 +59,20 @@ def naive_gaussian():
     return GaussianData( gau_xyz, gau_rot, gau_s, gau_a, gau_c)
 
 def random_gaussian(gaussians):
-    num_pts = gaussians.xyz.shape[0]
+    sample_ratio = 0.3
+    sampled_shape = (int(gaussians.xyz.shape[0]*sample_ratio), gaussians.xyz.shape[1])
+    num_pts = sampled_shape[0]
 
     # Generate means
     min_values = np.min(gaussians.xyz, axis=0)
     max_values = np.max(gaussians.xyz, axis=0)
-    xyz = np.random.uniform(min_values, max_values, size=gaussians.xyz.shape).astype(np.float32)
+    xyz = np.random.uniform(min_values, max_values, size=sampled_shape).astype(np.float32)
 
     # Generate opacities
     opacities = np.ones((num_pts, 1)).astype(np.float32)
 
     # Generate scales
-    scales = np.random.random((num_pts, 3)).astype(np.float32) * 0.5
+    scales = np.random.random((num_pts, 3)).astype(np.float32) * np.median(gaussians.scale)
 
     # Generate rotations
     rots = np.concatenate((np.ones((num_pts, 1)), np.zeros((num_pts, 3))), axis=1).astype(np.float32)
