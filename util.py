@@ -177,22 +177,40 @@ def set_attributes(program, keys, values, vao=None, buffer_ids=None):
     glBindBuffer(GL_ARRAY_BUFFER,0)
     return vao, buffer_ids
 
-def set_attribute(program, key, value, vao=None, buffer_id=None):
+# called with arguments (self.program, ["position"], [self.quad_v]) where 
+# self.quad_v = np.array([-1,  1, 1,  1, 1, -1, -1, -1], dtype=np.float32).reshape(4, 2)
+def set_attributes(program, keys, values, vao=None, buffer_ids=None):
     glUseProgram(program)
+    # Vertex Array objects stores calls to gl(Dis/En)ableVertexAttribArray
+    # with its Vertex attribute configurations via glVertexAttribPointer.
+    # Vertex buffer objects associated with vertex attributes by calls to glVertexAttribPointer.
     if vao is None:
         vao = glGenVertexArrays(1)
     glBindVertexArray(vao)
 
-    if buffer_id is None:
-        buffer_id = glGenBuffers(1)
-    glBindBuffer(GL_ARRAY_BUFFER, buffer_id)
-    glBufferData(GL_ARRAY_BUFFER, value.nbytes, value.reshape(-1), GL_STATIC_DRAW)
-    length = value.shape[-1]
-    pos = glGetAttribLocation(program, key)
-    glVertexAttribPointer(pos, length, GL_FLOAT, False, 0, None)
-    glEnableVertexAttribArray(pos)
+    if buffer_ids is None:
+        buffer_ids = [None] * len(keys)
+    for i, (key, value, b) in enumerate(zip(keys, values, buffer_ids)):
+        if b is None:
+            # generates a buffer with unique ID b, then saved to buffer_ids
+            b = glGenBuffers(1)
+            buffer_ids[i] = b
+        # binds to the GL_ARRAY_BUFFER type to then load data
+        glBindBuffer(GL_ARRAY_BUFFER, b)
+        # copies type GL_ARRAY_BUFFER, value.nbytes size of data (quad_v), which is set only once and used many times
+        glBufferData(GL_ARRAY_BUFFER, value.nbytes, value.reshape(-1), GL_STATIC_DRAW)
+        # gets the atribute location of "position" which is 0 as set in the vertex shader, and the length is 2
+        length = value.shape[-1]
+        pos = glGetAttribLocation(program, key)
+        # how to interpret the data: configuring 0 "position", which are vec3, float elements, 
+        # unnormalized, zero stride, with no offset to where the data begins
+        glVertexAttribPointer(pos, length, GL_FLOAT, False, 0, None)
+        # enable what was before setup again, for the 0 "position" data
+        glEnableVertexAttribArray(pos)
+    
+    # map to first buffer 0 since we have kept track of the buffer ids anyway
     glBindBuffer(GL_ARRAY_BUFFER,0)
-    return vao, buffer_id
+    return vao, buffer_ids
 
 def set_attribute_instanced(program, key, value, instance_stride=1, vao=None, buffer_id=None):
     glUseProgram(program)
@@ -229,6 +247,8 @@ def set_storage_buffer_data(program, key, value: np.ndarray, bind_idx, vao=None,
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0)
     return buffer_id
 
+# called with arguments (vao, self.quad_f) where quad_f = np.array([0, 1, 2, 0, 2, 3], dtype=np.uint32).reshape(2, 3)
+# Very similar strucuture to set_attributes but already exploiting VAO created in set_attributes
 def set_faces_tovao(vao, faces: np.ndarray):
     # faces
     glBindVertexArray(vao)

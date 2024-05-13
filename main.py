@@ -11,7 +11,7 @@ from tkinter import filedialog
 import os
 import sys
 import argparse
-from renderer_ogl import OpenGLRenderer, GaussianRenderBase
+from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 
 N_HAIR_GAUSSIANS = 4650
 N_HAIR_STRANDS = 150
@@ -28,8 +28,9 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 g_camera = util.Camera(720, 1280)
 BACKEND_OGL=0
 BACKEND_CUDA=1
+BACKEND_OGL_AXES=2
 g_renderer_list = [
-    None, # ogl
+    None, None, None # ogl
 ]
 g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
@@ -202,6 +203,7 @@ def main():
 
     # init renderer
     g_renderer_list[BACKEND_OGL] = OpenGLRenderer(g_camera.w, g_camera.h)
+    g_renderer_list[BACKEND_OGL_AXES] = OpenGLRendererAxes(g_camera.w, g_camera.h)
     try:
         from renderer_cuda import CUDARenderer
         g_renderer_list += [CUDARenderer(g_camera.w, g_camera.h)]
@@ -256,7 +258,7 @@ def main():
         if g_show_control_win:
             if imgui.begin("Control", True):
                 # rendering backend
-                changed, g_renderer_idx = imgui.combo("backend", g_renderer_idx, ["ogl", "cuda"][:len(g_renderer_list)])
+                changed, g_renderer_idx = imgui.combo("backend", g_renderer_idx, ["ogl", "cuda", "ogl_axes"][:len(g_renderer_list)])
                 if changed:
                     g_renderer = g_renderer_list[g_renderer_idx]
                     update_activated_renderer_state(gaussians)

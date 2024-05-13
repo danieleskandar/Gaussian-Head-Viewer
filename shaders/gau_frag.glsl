@@ -26,14 +26,8 @@ void main()
     FragColor = vec4(color, opacity);
 
     // handling special shading effect
-    if (render_mod == -3) {
-        // power = -0.5f * (conic.x * coordxy.x * coordxy.x + conic.z * coordxy.y * coordxy.y); //only loses some depth
-        power = -0.5f * (conic.z * coordxy.y * coordxy.y) - conic.y * coordxy.x * coordxy.y; // closest to prisms
-        opacity = min(0.99f, alpha * exp(power));
-        FragColor = vec4(color, opacity);
-
+    if (render_mod == -3)
         FragColor.a = FragColor.a > 0.22 ? 1 : 0;
-    }
     else if (render_mod == -4)
     {
         FragColor.a = FragColor.a > 0.22 ? 1 : 0;
