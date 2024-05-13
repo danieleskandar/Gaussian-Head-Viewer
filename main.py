@@ -13,8 +13,9 @@ import sys
 import argparse
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase
 
-N_HAIR_PTS = 60000
-N_HEAD_PTS = 223978
+N_HAIR_GAUSSIANS = 4650
+N_HAIR_STRANDS = 150
+N_GAUSSIANS_PER_STRAND = 31
 
 # Add the directory containing main.py to the Python path
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -34,7 +35,6 @@ g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_frame_modifier = 1
-g_slice = 1
 g_show_input_init = False
 g_show_random_init = False
 g_auto_sort = False
@@ -42,10 +42,13 @@ g_show_control_win = True
 g_show_help_win = True
 g_show_camera_win = True
 g_show_head_avatar_win = True
+g_use_hair_color = False
+g_use_head_color = False
 g_show_hair = True
 g_show_head = True
-g_use_seg_colors = False
-g_color = [1, 1, 1]
+g_hair_color = np.asarray([0, 1, 0])
+g_head_color = np.asarray([0, 0, 1])
+g_color_strands = False
 g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 7
 
@@ -125,31 +128,60 @@ def window_resize_callback(window, width, height):
     g_renderer.set_render_reso(width, height)
 
 def render(gaussians):
-    g_renderer.update_gaussian_data(segment(slice(gaussians)))
+    g_renderer.update_gaussian_data(color(part(gaussians)))
 
-def slice(gaussians):
-    return util_gau.GaussianData(
-            gaussians.xyz[:g_slice, :],
-            gaussians.rot[:g_slice, :],
-            gaussians.scale[:g_slice, :],
-            gaussians.opacity[:g_slice, :],
-            gaussians.sh[:g_slice, :],
+def part(gaussians):
+    if g_show_hair and g_show_head:
+        return gaussians
+    elif g_show_hair:
+        return util_gau.GaussianData(
+            gaussians.xyz[:N_HAIR_GAUSSIANS, :],
+            gaussians.rot[:N_HAIR_GAUSSIANS, :],
+            gaussians.scale[:N_HAIR_GAUSSIANS, :],
+            gaussians.opacity[:N_HAIR_GAUSSIANS, :],
+            gaussians.sh[:N_HAIR_GAUSSIANS, :],
+        )
+    elif g_show_head:
+        return util_gau.GaussianData(
+            gaussians.xyz[N_HAIR_GAUSSIANS:, :],
+            gaussians.rot[N_HAIR_GAUSSIANS:, :],
+            gaussians.scale[N_HAIR_GAUSSIANS:, :],
+            gaussians.opacity[N_HAIR_GAUSSIANS:, :],
+            gaussians.sh[N_HAIR_GAUSSIANS:, :],
+        )
+    else:
+        return util_gau.GaussianData(
+            gaussians.xyz[:0, :],
+            gaussians.rot[:0, :],
+            gaussians.scale[:0, :],
+            gaussians.opacity[:0, :],
+            gaussians.sh[:0, :],
         )
 
-def segment(gaussians):
-    if g_use_seg_colors:
-        return util_gau.GaussianData(
+def color(gaussians):
+    if not g_use_hair_color and not g_use_head_color and not g_color_strands:
+        return gaussians
+    
+    colors = gaussians.sh[:, :3].copy()
+    if g_use_hair_color:
+        colors[:N_HAIR_GAUSSIANS, :] = g_hair_color
+    if g_use_head_color:
+        colors[N_HAIR_GAUSSIANS:, :] = g_head_color
+    if g_color_strands:
+        for i in range(N_HAIR_STRANDS):
+            colors[i*N_GAUSSIANS_PER_STRAND:(i+1)*N_GAUSSIANS_PER_STRAND, :] = np.random.rand(1, 3)
+
+    return util_gau.GaussianData(
             gaussians.xyz,
             gaussians.rot,
             gaussians.scale,
             gaussians.opacity,
-            np.tile(g_color, (gaussians.xyz.shape[0], 1)).astype(np.float32),
-        )
-    return gaussians
+            colors.astype(np.float32),
+        )  
 
 
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_slice, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, g_color, g_use_seg_colors, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, g_hair_color, g_head_color, g_use_hair_color, g_use_head_color, g_color_strands, \
         g_show_control_win, g_show_help_win, g_show_camera_win, g_show_head_avatar_win, \
         g_render_mode, g_render_mode_tables
         
@@ -394,21 +426,44 @@ def main():
             imgui.begin("Head Avatar Control", True)
             
             if imgui.button(label="Re-center Head Avatar"):
-                g_camera.position = np.array([-2.0607586, -0.5666658,  0.7943931]).astype(np.float32)
-                g_camera.target = np.array([0.6508578 ,  0.16832292, -0.25769246]).astype(np.float32)
-                g_camera.up = np.array([-0.20867014, -0.8732953 , -0.4402408]).astype(np.float32)
+                g_camera.position = np.array([0.0, 0.5, 2]).astype(np.float32)
+                g_camera.target = np.array([0.0, 0.4, 0.3]).astype(np.float32)
+                g_camera.up = np.array([0.0, 1.0, 0.0]).astype(np.float32)
+                g_camera.pitch = -0.184
                 g_camera.is_pose_dirty = True
 
-            changed, g_slice = imgui.slider_int("slice", g_slice, 1, 370320, "%d" )
+            changed, g_show_hair = imgui.checkbox("Hair", g_show_hair)
             if changed:
                 render(gaussians)
 
-            changed, g_use_seg_colors = imgui.checkbox( "use segmentation colors", g_use_seg_colors)
+            changed, g_show_head = imgui.checkbox("Head", g_show_head)
             if changed:
                 render(gaussians)
-            
-            changed, g_color = imgui.color_edit3("Color", *g_color)
+
+            changed, g_hair_color = imgui.color_edit3("Hair Color", *g_hair_color)
             if (changed):
+                render(gaussians)
+
+            imgui.same_line()
+
+            changed, g_use_hair_color = imgui.checkbox("Use Hair Color", g_use_hair_color)
+            if changed:
+                g_color_strands = False
+                render(gaussians)
+            
+            changed, g_head_color = imgui.color_edit3("Head Color", *g_head_color)
+            if (changed):
+                render(gaussians)
+
+            imgui.same_line()
+
+            changed, g_use_head_color = imgui.checkbox("Use Head Color", g_use_head_color)
+            if changed:
+                render(gaussians)
+
+            changed, g_color_strands = imgui.checkbox("Color Strands", g_color_strands)
+            if changed:
+                g_use_hair_color = False
                 render(gaussians)
 
             imgui.end()
