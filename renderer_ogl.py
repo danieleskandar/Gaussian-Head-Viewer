@@ -198,6 +198,13 @@ class OpenGLRenderer(GaussianRenderBase):
         util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
         util.set_uniform_v3(self.program, camera.get_htanfovxy_focal(), "hfovxy_focal")
 
+    def update_ray_direction(self, camera: util.Camera, mouse_pos_2d):
+        mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, camera.get_view_matrix(), camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+        ray_direction = mouse_pos_3d-camera.position
+        ray_direction = ray_direction/np.linalg.norm(ray_direction)
+        util.set_uniform_v3(self.program, ray_direction, "ray_direction")
+        return
+   
     def draw(self):
         gl.glUseProgram(self.program)
         gl.glBindVertexArray(self.vao)

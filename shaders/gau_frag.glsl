@@ -5,7 +5,7 @@ in float alpha;
 in vec3 conic;
 in vec2 coordxy;  // local coordinate in quad, unit in pixel
 
-uniform int render_mod;  // > 0 render 0-ith SH dim, -1 depth, -2 bill board, -3 flat ball, -4 gaussian ball
+uniform int render_mod;  // > 0 render 0-ith SH dim, -1 depth, -2 bill board, -3 flat ball, -4 gaussian ball, -5 ray mode
 
 out vec4 FragColor;
 

@@ -155,28 +155,6 @@ def compile_shaders(vertex_shader, fragment_shader):
     return active_shader
 
 
-def set_attributes(program, keys, values, vao=None, buffer_ids=None):
-    glUseProgram(program)
-    if vao is None:
-        vao = glGenVertexArrays(1)
-    glBindVertexArray(vao)
-
-    if buffer_ids is None:
-        buffer_ids = [None] * len(keys)
-    for i, (key, value, b) in enumerate(zip(keys, values, buffer_ids)):
-        if b is None:
-            b = glGenBuffers(1)
-            buffer_ids[i] = b
-        glBindBuffer(GL_ARRAY_BUFFER, b)
-        glBufferData(GL_ARRAY_BUFFER, value.nbytes, value.reshape(-1), GL_STATIC_DRAW)
-        length = value.shape[-1]
-        pos = glGetAttribLocation(program, key)
-        glVertexAttribPointer(pos, length, GL_FLOAT, False, 0, None)
-        glEnableVertexAttribArray(pos)
-    
-    glBindBuffer(GL_ARRAY_BUFFER,0)
-    return vao, buffer_ids
-
 # called with arguments (self.program, ["position"], [self.quad_v]) where 
 # self.quad_v = np.array([-1,  1, 1,  1, 1, -1, -1, -1], dtype=np.float32).reshape(4, 2)
 def set_attributes(program, keys, values, vao=None, buffer_ids=None):
@@ -361,4 +339,27 @@ def update_texture2d(img, texid, offset):
         GL_RGB, GL_UNSIGNED_BYTE, img
     )
 
+# adapted from https://www.khronos.org/opengl/wiki/GluProject_and_gluUnProject_code
+def glhUnProjectf(winx, winy, winz, modelview, projection, viewport):
+    try:
+        A = projection @ modelview
+        m = np.linalg.inv(A)
+    except np.linalg.LinAlgError:
+        return np.array([0, 0, 0])
 
+    # screen coordinates to normalized device coordinates
+    in_vec = np.array([
+        (winx - viewport[0]) / viewport[2] * 2.0 - 1.0,
+        -((winy - viewport[1]) / viewport[3] * 2.0 - 1.0),
+        2.0 * winz - 1.0,
+        1.0
+    ])
+
+    # normalized device coordinates to world coordinates
+    out_vec = m @ in_vec
+
+    if out_vec[3] == 0.0:
+        return np.array([0, 0, 0])
+
+    out_vec /= out_vec[3]
+    return out_vec[:3]

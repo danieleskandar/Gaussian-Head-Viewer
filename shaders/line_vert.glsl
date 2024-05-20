@@ -86,7 +86,7 @@ void main()
 	float g_opacity = g_data[start + OPACITY_IDX];
 
 	mat3 M = computeSR(g_scale * scale_modifier, g_rot);
-	vec4 second_point = vec4(lines*M + get_vec3(start + POS_IDX), 1.f);
+	vec4 second_point = vec4(lines*M + g_pos.xyz*frame_modifier, 1.f);
 	vec4 second_point_view = view_matrix * second_point;
 	vec4 second_point_screen = projection_matrix * second_point_view;
 	// second_point_screen.xyz = second_point_screen.xyz / second_point_screen.w;

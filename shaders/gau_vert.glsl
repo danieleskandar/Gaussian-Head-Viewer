@@ -52,6 +52,7 @@ uniform int sh_dim;
 uniform float scale_modifier;
 uniform float frame_modifier;
 uniform int render_mod;  // > 0 render 0-ith SH dim, -1 depth, -2 bill board, -3 gaussian
+uniform vec3 ray_direction;
 
 out vec3 color;
 out float alpha;
@@ -168,6 +169,17 @@ void main()
 		depth = depth < 0.05 ? 1 : depth;
 		depth = 1 / depth;
 		color = vec3(depth, depth, depth);
+		return;
+	}
+
+	if (render_mod == -5)
+	{
+		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
+		vec3 closest_point = cam_pos + projection * ray_direction;
+		float distance = length(g_pos.xyz - closest_point);
+		distance = distance < 0.05 ? 1 : distance;
+		distance = 1 / distance;
+		color = vec3(distance, distance, distance);
 		return;
 	}
 

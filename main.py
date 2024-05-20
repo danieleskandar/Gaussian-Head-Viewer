@@ -50,8 +50,8 @@ g_show_head = True
 g_hair_color = np.asarray([0, 1, 0])
 g_head_color = np.asarray([0, 0, 1])
 g_color_strands = False
-g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
-g_render_mode = 7
+g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
+g_render_mode = 8
 
 def impl_glfw_init():
     window_name = "Dynamic Gaussian Visualizer"
@@ -114,6 +114,7 @@ def update_camera_intrin_lazy():
         g_camera.is_intrin_dirty = False
 
 def update_activated_renderer_state(gaussians: util_gau.GaussianData):
+    gaussians.stats()
     render(gaussians)
     g_renderer.sort_and_update(g_camera)
     g_renderer.set_scale_modifier(g_scale_modifier)
@@ -234,6 +235,8 @@ def main():
 
         update_camera_pose_lazy()
         update_camera_intrin_lazy()
+        if (g_renderer_idx != 2):
+            g_renderer.update_ray_direction(g_camera, imgui.get_io().mouse_pos)
         
         g_renderer.draw()
 
@@ -265,6 +268,11 @@ def main():
 
                 imgui.text(f"fps = {imgui.get_io().framerate:.1f}")
 
+                imgui.text(f"mean of gaussians' means = {gaussians.xyz_mean[0]:.5f}, {gaussians.xyz_mean[1]:.5f}, {gaussians.xyz_mean[2]:.5f}")
+                imgui.text(f"var of gaussians' means = {gaussians.xyz_var[0]:.5f}, {gaussians.xyz_var[1]:.5f}, {gaussians.xyz_var[2]:.5f}")
+                imgui.text(f"mean of gaussians' scales = {gaussians.scale_mean[0]:.5f}, {gaussians.scale_mean[1]:.5f}, {gaussians.scale_mean[2]:.5f}")
+                imgui.text(f"var of gaussians' scales = {gaussians.scale_var[0]:.5f}, {gaussians.scale_var[1]:.5f}, {gaussians.scale_var[2]:.5f}")
+
                 changed, g_renderer.reduce_updates = imgui.checkbox( "reduce updates", g_renderer.reduce_updates,)
 
                 imgui.text(f"# of Gaus = {len(gaussians)}")
@@ -276,6 +284,7 @@ def main():
                     if file_path:
                         try:
                             gaussians = util_gau.load_ply(file_path)
+                            gaussians.stats()
                             random_gaussians = util_gau.random_gaussian(gaussians)
                             g_show_input_init = False
                             g_show_random_init = False
@@ -350,7 +359,7 @@ def main():
                 # render mode
                 changed, g_render_mode = imgui.combo("shading", g_render_mode, g_render_mode_tables)
                 if changed:
-                    g_renderer.set_render_mod(g_render_mode - 4)
+                    g_renderer.set_render_mod(g_render_mode - 5)
                 
                 # sort button
                 if imgui.button(label='sort Gaussians'):
