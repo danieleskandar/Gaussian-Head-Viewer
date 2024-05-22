@@ -49,6 +49,7 @@ g_show_hair = True
 g_show_head = True
 g_hair_color = np.asarray([0, 1, 0])
 g_head_color = np.asarray([0, 0, 1])
+g_random_strand_colors = np.repeat(np.random.rand(150, 3), repeats=31, axis=0)
 g_color_strands = False
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
@@ -170,8 +171,7 @@ def color(gaussians):
     if g_use_head_color:
         colors[N_HAIR_GAUSSIANS:, :] = g_head_color
     if g_color_strands:
-        for i in range(N_HAIR_STRANDS):
-            colors[i*N_GAUSSIANS_PER_STRAND:(i+1)*N_GAUSSIANS_PER_STRAND, :] = np.random.rand(1, 3)
+        colors[:N_HAIR_GAUSSIANS, :] = g_random_strand_colors
 
     return util_gau.GaussianData(
             gaussians.xyz,
@@ -183,7 +183,7 @@ def color(gaussians):
 
 
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, g_hair_color, g_head_color, g_use_hair_color, g_use_head_color, g_color_strands, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, g_hair_color, g_head_color, g_random_strand_colors, g_use_hair_color, g_use_head_color, g_color_strands, \
         g_show_control_win, g_show_help_win, g_show_camera_win, g_show_head_avatar_win, \
         g_render_mode, g_render_mode_tables
         
