@@ -31,7 +31,6 @@ uniform mat4 view_matrix;
 uniform mat4 projection_matrix;
 uniform int sh_dim;
 uniform float scale_modifier;
-uniform float frame_modifier;
 
 out vec3 color;
 
@@ -70,7 +69,7 @@ void main()
 	int boxid = gi[gl_InstanceID];
 	int total_dim = 3 + 4 + 3 + 1 + sh_dim;
 	int start = boxid * total_dim;
-	vec4 g_pos = vec4(get_vec3(start + POS_IDX)*frame_modifier, 1.f);
+	vec4 g_pos = vec4(get_vec3(start + POS_IDX), 1.f);
     vec4 g_pos_view = view_matrix * g_pos;
     vec4 g_pos_screen = projection_matrix * g_pos_view;
 	g_pos_screen.xyz = g_pos_screen.xyz / g_pos_screen.w;
@@ -86,7 +85,7 @@ void main()
 	float g_opacity = g_data[start + OPACITY_IDX];
 
 	mat3 M = computeSR(g_scale * scale_modifier, g_rot);
-	vec4 second_point = vec4(lines*M + g_pos.xyz*frame_modifier, 1.f);
+	vec4 second_point = vec4(lines*M + g_pos.xyz, 1.f);
 	vec4 second_point_view = view_matrix * second_point;
 	vec4 second_point_screen = projection_matrix * second_point_view;
 	// second_point_screen.xyz = second_point_screen.xyz / second_point_screen.w;

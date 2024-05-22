@@ -103,9 +103,6 @@ class GaussianRenderBase:
     def set_scale_modifier(self, modifier: float):
         raise NotImplementedError()
     
-    def set_frame_modifier(self, modifier: float):
-        pass
-    
     def set_render_mod(self, mod: int):
         raise NotImplementedError()
     
@@ -179,9 +176,6 @@ class OpenGLRenderer(GaussianRenderBase):
     def set_scale_modifier(self, modifier):
         util.set_uniform_1f(self.program, modifier, "scale_modifier")
 
-    def set_frame_modifier(self, modifier):
-        util.set_uniform_1f(self.program, modifier, "frame_modifier")
-
     def set_render_mod(self, mod: int):
         util.set_uniform_1int(self.program, mod, "render_mod")
 
@@ -202,6 +196,9 @@ class OpenGLRenderer(GaussianRenderBase):
         mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, camera.get_view_matrix(), camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
         ray_direction = mouse_pos_3d-camera.position
         ray_direction = ray_direction/np.linalg.norm(ray_direction)
+        #print(f"mouse 2D: {mouse_pos_2d}")
+        #print(f"mouse 3D: {mouse_pos_3d}")
+        #print(f"camera  : {camera.position}")
         util.set_uniform_v3(self.program, ray_direction, "ray_direction")
         return
    
@@ -262,9 +259,6 @@ class OpenGLRendererAxes(GaussianRenderBase):
    
     def set_scale_modifier(self, modifier):
         util.set_uniform_1f(self.program, modifier, "scale_modifier")
-
-    def set_frame_modifier(self, modifier):
-        util.set_uniform_1f(self.program, modifier, "frame_modifier")
 
     def set_render_mod(self, mod: int):
         util.set_uniform_1int(self.program, mod, "render_mod")

@@ -27,6 +27,12 @@ class GaussianData:
         self.scale_mean = np.mean(self.scale, axis=0)
         self.scale_var = np.var(self.scale, axis=0)
 
+    def slice_data(self, start, end):
+        return np.copy(self.xyz[start:end, :]), np.copy(self.rot[start:end, :]), np.copy(self.scale[start:end, :]), np.copy(self.opacity[start:end, :]), np.copy(self.sh[start:end, :])
+
+    def get_data(self):
+        return np.copy(self.xyz), np.copy(self.rot), np.copy(self.scale), np.copy(self.opacity), np.copy(self.sh)
+
 def naive_gaussian():
     gau_xyz = np.array([
         0, 0, 0,
@@ -86,7 +92,6 @@ def random_gaussian(gaussians):
     rgb = np.random.random((num_pts, 3)).astype(np.float32)
 
     return GaussianData(xyz, rots, scales, opacities, rgb)
-
 
 def load_ply(path):
     max_sh_degree = 3
@@ -148,7 +153,6 @@ def load_ply(path):
     shs = shs.astype(np.float32)
     
     return GaussianData(xyz, rots, scales, opacities, shs)
-
 
 def load_input_ply(path):
     plydata = PlyData.read(path)

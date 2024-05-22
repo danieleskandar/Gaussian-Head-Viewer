@@ -13,10 +13,6 @@ import sys
 import argparse
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 
-N_HAIR_GAUSSIANS = 4650
-N_HAIR_STRANDS = 150
-N_GAUSSIANS_PER_STRAND = 31
-
 # Add the directory containing main.py to the Python path
 dir_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(dir_path)
@@ -35,24 +31,185 @@ g_renderer_list = [
 g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
-g_frame_modifier = 1
-g_show_input_init = False
-g_show_random_init = False
-g_auto_sort = False
+g_auto_sort = True
 g_show_control_win = True
 g_show_help_win = True
 g_show_camera_win = True
-g_show_head_avatar_win = True
-g_use_hair_color = False
-g_use_head_color = False
-g_show_hair = True
-g_show_head = True
-g_hair_color = np.asarray([0, 1, 0])
-g_head_color = np.asarray([0, 0, 1])
-g_random_strand_colors = np.repeat(np.random.rand(150, 3), repeats=31, axis=0)
-g_color_strands = False
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
+
+###########
+# Constants
+###########
+
+N_HAIR_GAUSSIANS = 4650
+N_HAIR_STRANDS = 150
+N_GAUSSIANS_PER_STRAND = 31
+
+########################
+# Head Avatars Variables
+########################
+gaussians = util_gau.naive_gaussian()
+g_show_head_avatars_win = True
+g_head_avatar_checkboxes = []
+g_head_avatars = []
+g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)), )
+
+######################
+# Head Avatars Actions
+######################
+def open_head_avatar_ply():
+    file_path = filedialog.askopenfilename(
+        title="open ply",
+        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\hair\\point_cloud\\iteration_30000",
+        filetypes=[('ply file', '.ply')]
+    )
+    if file_path:
+        try:
+            g_head_avatar = util_gau.load_ply(file_path)
+            g_head_avatars.append(g_head_avatar)
+            g_head_avatar_checkboxes.append(True)
+            g_show_hair.append(True)
+            g_show_head.append(True)
+            g_hair_color.append([1, 0, 0])
+            g_head_color.append([1, 1, 1])
+            g_show_hair_color.append(False)
+            g_show_head_color.append(False)
+            g_hair_scale.append(1)
+        except RuntimeError as e:
+            pass
+
+##################################
+# Head Avatar Controller Variables
+##################################
+g_show_head_avatar_controller_win = True
+g_selected_head_avatar_index = -1
+g_selected_head_avatar_name = "None"
+g_show_hair = []
+g_show_head = []
+g_hair_color = []
+g_head_color = []
+g_show_hair_color = []
+g_show_head_color = []
+g_hair_scale = []
+
+################################
+# Head Avatar Controller Actions
+################################
+def select_closest_head_avatar():
+    global g_selected_head_avatar_index, g_selected_head_avatar_name
+
+    if len(g_head_avatars) == 0 or np.sum(g_head_avatar_checkboxes) == 0:
+        g_selected_head_avatar_index = -1
+        g_selected_head_avatar_name = "None"
+        return
+
+    # Get merged points
+    j = 0
+    l = np.sum(g_head_avatar_checkboxes)
+    all_xyz = []
+    for i in range(len(g_head_avatars)):
+        if g_head_avatar_checkboxes[i]:
+            N = g_head_avatars[i].xyz.shape[0]
+            d = np.hstack([np.ones((N, 1)) * j, np.zeros((N, 2))])
+            all_xyz.append(g_head_avatars[i].xyz + d)
+            j += 1
+    all_xyz = np.vstack(all_xyz).astype(np.float32)
+
+    # Get mouse 3D position
+    mouse_pos_2d = imgui.get_io().mouse_pos
+    mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+    # Compute ray direction
+    ray_direction = mouse_pos_3d - g_camera.position
+    ray_direction = ray_direction / np.linalg.norm(ray_direction)
+    # Compute dot product to project each vector onto the ray
+    ray_projection = (all_xyz - g_camera.position) @ ray_direction
+    # Compute closest point on the ray for each point
+    closest_points_on_ray = g_camera.position + ray_projection[:, np.newaxis] * ray_direction
+    # Compute distances between each point and its closest point on the ray and distances to the camera
+    distances = np.linalg.norm(all_xyz - closest_points_on_ray, axis=1) + np.linalg.norm(all_xyz - g_camera.position, axis=1)
+
+    # Get index of the closest point
+    closest_point_index = np.argmin(distances)
+
+    # Get index and name of the selected head avatar
+    g_selected_head_avatar_index = np.where(np.cumsum(g_head_avatar_checkboxes) == closest_point_index // N + 1)[0][0]
+    g_selected_head_avatar_name = "Head Avatar " + str(g_selected_head_avatar_index + 1)
+
+#################
+# 
+#################
+def merge_head_avatars():
+    global g_selected_head_avatar_index, g_selected_head_avatar_name
+
+    if len(g_head_avatars) == 0 or np.sum(g_head_avatar_checkboxes) == 0:
+        g_selected_head_avatar_index = -1
+        g_selected_head_avatar_name = "None"
+        return g_empty_gaussian
+
+    # N: number of gaussians in head avatar
+    # j: counter used to calculate amount of displacement
+    # l: number of selected head avatars
+    # d: displacement added to the x component of the gaussian means
+    j = 0
+    l = np.sum(g_head_avatar_checkboxes)
+    all_xyz = []
+    all_rot = []
+    all_scale = []
+    all_opacity = []
+    all_sh = []
+    for i in range(len(g_head_avatars)):
+        if g_head_avatar_checkboxes[i] and (g_show_hair[i] or g_show_head[i]):
+            # Get data
+            xyz, rot, scale, opacity, sh = g_head_avatars[i].get_data()
+
+            # Add displacement to gaussian means
+            N = g_head_avatars[i].xyz.shape[0]
+            d = np.hstack([np.ones((N, 1)) * j, np.zeros((N, 2))])
+            xyz = xyz + d
+            
+            # Slice data
+            if g_show_hair[i] and not g_show_head[i]:
+                xyz, rot, scale, opacity, sh = g_head_avatars[i].slice_data(0, N_HAIR_GAUSSIANS)
+            elif not g_show_hair[i] and g_show_head[i]:
+                xyz, rot, scale, opacity, sh = g_head_avatars[i].slice_data(N_HAIR_GAUSSIANS, N)
+
+            # Color Data
+            if g_show_hair_color[i]:
+                sh[:N_HAIR_GAUSSIANS, 0:3] = np.asarray(g_hair_color[i]).T
+            if g_show_head_color[i]:
+                sh[N_HAIR_GAUSSIANS:, 0:3] = np.asarray(g_head_color[i]).T
+
+            # Scale Hair Data
+            scale[:N_HAIR_GAUSSIANS, :] *= g_hair_scale[i]
+
+            all_xyz.append(xyz)
+            all_rot.append(rot)
+            all_scale.append(scale)
+            all_opacity.append(opacity)
+            all_sh.append(sh[:, 0:3])
+
+            j += 1
+
+    if len(all_xyz) == 0:
+        g_selected_head_avatar_index = -1
+        g_selected_head_avatar_name = "None"
+        return g_empty_gaussian
+
+    return util_gau.GaussianData(
+        np.vstack(all_xyz).astype(np.float32),
+        np.vstack(all_rot).astype(np.float32),
+        np.vstack(all_scale).astype(np.float32),
+        np.vstack(all_opacity).astype(np.float32),
+        np.vstack(all_sh).astype(np.float32),
+    )
+
+def render_head_avatars():
+    global gaussians
+    gaussians = merge_head_avatars()
+    g_renderer.update_gaussian_data(gaussians)
+
+#####################
 
 def impl_glfw_init():
     window_name = "Dynamic Gaussian Visualizer"
@@ -94,6 +251,10 @@ def mouse_button_callback(window, button, action, mod):
     g_camera.is_leftmouse_pressed = (button == glfw.MOUSE_BUTTON_LEFT and pressed)
     g_camera.is_rightmouse_pressed = (button == glfw.MOUSE_BUTTON_RIGHT and pressed)
 
+    # Select closest head avatar
+    if action == glfw.RELEASE:
+        select_closest_head_avatar()
+
 def wheel_callback(window, dx, dy):
     g_camera.process_wheel(dx, dy)
 
@@ -115,11 +276,9 @@ def update_camera_intrin_lazy():
         g_camera.is_intrin_dirty = False
 
 def update_activated_renderer_state(gaussians: util_gau.GaussianData):
-    gaussians.stats()
-    render(gaussians)
+    g_renderer.update_gaussian_data(gaussians)
     g_renderer.sort_and_update(g_camera)
     g_renderer.set_scale_modifier(g_scale_modifier)
-    g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
     g_renderer.set_render_mod(g_render_mode - 3)
     g_renderer.update_camera_pose(g_camera)
     g_renderer.update_camera_intrin(g_camera)
@@ -130,62 +289,18 @@ def window_resize_callback(window, width, height):
     g_camera.update_resolution(height, width)
     g_renderer.set_render_reso(width, height)
 
-def render(gaussians):
-    g_renderer.update_gaussian_data(color(part(gaussians)))
-
-def part(gaussians):
-    if g_show_hair and g_show_head:
-        return gaussians
-    elif g_show_hair:
-        return util_gau.GaussianData(
-            gaussians.xyz[:N_HAIR_GAUSSIANS, :],
-            gaussians.rot[:N_HAIR_GAUSSIANS, :],
-            gaussians.scale[:N_HAIR_GAUSSIANS, :],
-            gaussians.opacity[:N_HAIR_GAUSSIANS, :],
-            gaussians.sh[:N_HAIR_GAUSSIANS, :],
-        )
-    elif g_show_head:
-        return util_gau.GaussianData(
-            gaussians.xyz[N_HAIR_GAUSSIANS:, :],
-            gaussians.rot[N_HAIR_GAUSSIANS:, :],
-            gaussians.scale[N_HAIR_GAUSSIANS:, :],
-            gaussians.opacity[N_HAIR_GAUSSIANS:, :],
-            gaussians.sh[N_HAIR_GAUSSIANS:, :],
-        )
-    else:
-        return util_gau.GaussianData(
-            gaussians.xyz[:0, :],
-            gaussians.rot[:0, :],
-            gaussians.scale[:0, :],
-            gaussians.opacity[:0, :],
-            gaussians.sh[:0, :],
-        )
-
-def color(gaussians):
-    if not g_use_hair_color and not g_use_head_color and not g_color_strands:
-        return gaussians
-    
-    colors = gaussians.sh[:, :3].copy()
-    if g_use_hair_color:
-        colors[:N_HAIR_GAUSSIANS, :] = g_hair_color
-    if g_use_head_color:
-        colors[N_HAIR_GAUSSIANS:, :] = g_head_color
-    if g_color_strands:
-        colors[:N_HAIR_GAUSSIANS, :] = g_random_strand_colors
-
-    return util_gau.GaussianData(
-            gaussians.xyz,
-            gaussians.rot,
-            gaussians.scale,
-            gaussians.opacity,
-            colors.astype(np.float32),
-        )  
-
 
 def main():
-    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_frame_modifier, g_show_input_init, g_show_random_init, g_auto_sort, g_show_hair, g_show_head, g_hair_color, g_head_color, g_random_strand_colors, g_use_hair_color, g_use_head_color, g_color_strands, \
-        g_show_control_win, g_show_help_win, g_show_camera_win, g_show_head_avatar_win, \
+    global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_auto_sort, \
+        g_show_control_win, g_show_help_win, g_show_camera_win, \
         g_render_mode, g_render_mode_tables
+
+    # Head Avatars Global Variables
+    global gaussians, g_show_head_avatars_win, g_head_avatar_checkboxes, g_empty_gaussian
+
+    # # Head Avatar Controller Global Variables
+    global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
+        g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale
         
     imgui.create_context()
     if args.hidpi:
@@ -216,9 +331,6 @@ def main():
     g_renderer = g_renderer_list[g_renderer_idx]
 
     # gaussian data
-    input_gaussians = None
-    gaussians = util_gau.naive_gaussian()
-    random_gaussians = util_gau.random_gaussian(gaussians)
     update_activated_renderer_state(gaussians)    
 
     # maximize window
@@ -252,8 +364,11 @@ def main():
                 clicked, g_show_camera_win = imgui.menu_item(
                     "Show Camera Control", None, g_show_camera_win
                 )
-                clicked, g_show_head_avatar_win = imgui.menu_item(
-                    "Show Head Avatar Control", None, g_show_head_avatar_win
+                clicked, g_show_head_avatars_win = imgui.menu_item(
+                    "Show Head Avatars", None, g_show_head_avatars_win
+                )
+                clicked, g_show_head_avatar_controller_win = imgui.menu_item(
+                    "Show Head Avatar Controller", None, g_show_head_avatar_controller_win
                 )
                 imgui.end_menu()
             imgui.end_main_menu_bar()
@@ -268,14 +383,9 @@ def main():
 
                 imgui.text(f"fps = {imgui.get_io().framerate:.1f}")
 
-                imgui.text(f"mean of gaussians' means = {gaussians.xyz_mean[0]:.5f}, {gaussians.xyz_mean[1]:.5f}, {gaussians.xyz_mean[2]:.5f}")
-                imgui.text(f"var of gaussians' means = {gaussians.xyz_var[0]:.5f}, {gaussians.xyz_var[1]:.5f}, {gaussians.xyz_var[2]:.5f}")
-                imgui.text(f"mean of gaussians' scales = {gaussians.scale_mean[0]:.5f}, {gaussians.scale_mean[1]:.5f}, {gaussians.scale_mean[2]:.5f}")
-                imgui.text(f"var of gaussians' scales = {gaussians.scale_var[0]:.5f}, {gaussians.scale_var[1]:.5f}, {gaussians.scale_var[2]:.5f}")
-
                 changed, g_renderer.reduce_updates = imgui.checkbox( "reduce updates", g_renderer.reduce_updates,)
 
-                imgui.text(f"# of Gaus = {len(gaussians)}")
+                imgui.text(f"# of Gaus = {gaussians.xyz.shape[0]}")
                 if imgui.button(label='open ply'):
                     file_path = filedialog.askopenfilename(title="open ply",
                         initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models",
@@ -284,50 +394,10 @@ def main():
                     if file_path:
                         try:
                             gaussians = util_gau.load_ply(file_path)
-                            gaussians.stats()
-                            random_gaussians = util_gau.random_gaussian(gaussians)
-                            g_show_input_init = False
-                            g_show_random_init = False
-                            render(gaussians)
+                            g_renderer.update_gaussian_data(gaussians)
                             g_renderer.sort_and_update(g_camera)
                         except RuntimeError as e:
                             pass
-
-                if imgui.button(label='open input ply'):
-                    file_path = filedialog.askopenfilename(title="open input ply",
-                        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models",
-                        filetypes=[('ply file', '.ply')]
-                        )
-                    if file_path:
-                        try:
-                            input_gaussians = util_gau.load_input_ply(file_path)
-                            g_show_input_init = True
-                            g_show_random_init = False
-                            g_frame_modifier = 300
-                            g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
-                            g_renderer.update_gaussian_data(input_gaussians)
-                            g_renderer.sort_and_update(g_camera)                            
-                        except RuntimeError as e:
-                            pass
-
-                changed, g_show_input_init = imgui.checkbox( "show intput init", g_show_input_init,)
-
-                if changed:
-                    if g_show_input_init:
-                        g_show_random_init = False
-                        if input_gaussians is not None:
-                            g_renderer.update_gaussian_data(input_gaussians)
-                    else:
-                        render(gaussians)
-
-                changed, g_show_random_init = imgui.checkbox( "show random init", g_show_random_init,)
-
-                if changed:
-                    if g_show_random_init:
-                        g_show_input_init = False
-                        g_renderer.update_gaussian_data(random_gaussians)
-                    else:
-                        render(gaussians)
                 
                 # camera fov
                 changed, g_camera.fovy = imgui.slider_float(
@@ -347,14 +417,6 @@ def main():
                     
                 if changed:
                     g_renderer.set_scale_modifier(g_scale_modifier)
-
-                # frame modifier
-                changed, g_frame_modifier = imgui.slider_int(
-                    "frame", g_frame_modifier, 1, 300, "Frames = %d"
-                )
-
-                if changed:
-                    g_renderer.set_frame_modifier(np.interp(g_frame_modifier, [1, 300], [100, 1]))
                 
                 # render mode
                 changed, g_render_mode = imgui.combo("shading", g_render_mode, g_render_mode_tables)
@@ -413,14 +475,14 @@ def main():
                 g_camera.rot_sensitivity = 0.002
 
             changed, g_camera.trans_sensitivity = imgui.slider_float(
-                    "m", g_camera.trans_sensitivity, 0.001, 2, "move speed = %.3f"
+                    "m", g_camera.trans_sensitivity, 0.001, 0.03, "move speed = %.3f"
                 )
             imgui.same_line()
             if imgui.button(label="reset m"):
                 g_camera.trans_sensitivity = 0.01
 
             changed, g_camera.zoom_sensitivity = imgui.slider_float(
-                    "z", g_camera.zoom_sensitivity, 0.001, 2, "zoom speed = %.3f"
+                    "z", g_camera.zoom_sensitivity, 0.001, 0.05, "zoom speed = %.3f"
                 )
             imgui.same_line()
             if imgui.button(label="reset z"):
@@ -433,52 +495,6 @@ def main():
             if imgui.button(label="reset ro"):
                 g_camera.roll_sensitivity = 0.03
 
-        if g_show_head_avatar_win:
-            imgui.begin("Head Avatar Control", True)
-            
-            if imgui.button(label="Re-center Head Avatar"):
-                g_camera.position = np.array([0.0, 0.5, 2]).astype(np.float32)
-                g_camera.target = np.array([0.0, 0.4, 0.3]).astype(np.float32)
-                g_camera.up = np.array([0.0, 1.0, 0.0]).astype(np.float32)
-                g_camera.pitch = -0.184
-                g_camera.is_pose_dirty = True
-
-            changed, g_show_hair = imgui.checkbox("Hair", g_show_hair)
-            if changed:
-                render(gaussians)
-
-            changed, g_show_head = imgui.checkbox("Head", g_show_head)
-            if changed:
-                render(gaussians)
-
-            changed, g_hair_color = imgui.color_edit3("Hair Color", *g_hair_color)
-            if (changed):
-                render(gaussians)
-
-            imgui.same_line()
-
-            changed, g_use_hair_color = imgui.checkbox("Use Hair Color", g_use_hair_color)
-            if changed:
-                g_color_strands = False
-                render(gaussians)
-            
-            changed, g_head_color = imgui.color_edit3("Head Color", *g_head_color)
-            if (changed):
-                render(gaussians)
-
-            imgui.same_line()
-
-            changed, g_use_head_color = imgui.checkbox("Use Head Color", g_use_head_color)
-            if changed:
-                render(gaussians)
-
-            changed, g_color_strands = imgui.checkbox("Color Strands", g_color_strands)
-            if changed:
-                g_use_hair_color = False
-                render(gaussians)
-
-            imgui.end()
-
         if g_show_help_win:
             imgui.begin("Help", True)
             imgui.text("Open Gaussian Splatting PLY file \n  by click 'open ply' button")
@@ -487,6 +503,74 @@ def main():
             imgui.text("Press Q/E to roll camera")
             imgui.text("Use scroll to zoom in/out")
             imgui.text("Use control panel to change setting")
+            imgui.end()
+
+        # Head Avatars Window
+        if g_show_head_avatars_win:
+            imgui.begin("Head Avatars", True)
+
+            # Load Head avatar button
+            if imgui.button(label='open head avatar ply'):
+                open_head_avatar_ply()
+                render_head_avatars()
+                
+            # Display Head Avatar Checkboxes
+            for i in range(len(g_head_avatars)):
+                changed, g_head_avatar_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1}", g_head_avatar_checkboxes[i])
+                if changed:
+                    render_head_avatars()
+            
+            imgui.end()
+
+        # Head Avatar Controller Window
+        if g_show_head_avatar_controller_win:
+            imgui.begin("Head Avatar Controller", True)
+
+            imgui.text(f"Selected: {g_selected_head_avatar_name}")
+
+            if g_selected_head_avatar_index != -1:
+                i = g_selected_head_avatar_index
+
+                changed, g_show_hair[i] = imgui.checkbox("Show Hair", g_show_hair[i])
+                if changed:
+                    render_head_avatars()
+
+                imgui.same_line()
+
+                changed, g_show_head[i] = imgui.checkbox("Show Head", g_show_head[i])
+                if changed:
+                    render_head_avatars()
+
+                changed, g_hair_color[i] = imgui.color_edit3("Hair Color", *g_hair_color[i])
+                if changed:
+                    render_head_avatars()
+
+                imgui.same_line()
+
+                changed, g_show_hair_color[i] = imgui.checkbox("Show Hair Color", g_show_hair_color[i])
+                if changed:
+                    render_head_avatars()
+
+                changed, g_head_color[i] = imgui.color_edit3("Head Color", *g_head_color[i])
+                if changed:
+                    render_head_avatars()
+
+                imgui.same_line()
+
+                changed, g_show_head_color[i] = imgui.checkbox("Show Head Color", g_show_head_color[i])
+                if changed:
+                    render_head_avatars()
+
+                changed, g_hair_scale[i] = imgui.slider_float("Hair Scale", g_hair_scale[i], 0.5, 2, "Hair Scale = %.3f")
+                if changed:
+                    render_head_avatars()
+
+                imgui.same_line()
+
+                if imgui.button(label="Reset Hair Scale"):
+                    g_hair_scale[i] = 1
+                    changed = True        
+
             imgui.end()
         
         imgui.render()
