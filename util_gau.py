@@ -21,6 +21,11 @@ class GaussianData:
     def sh_dim(self):
         return self.sh.shape[-1]
 
+    def stats(self):
+        self.xyz_mean = np.mean(self.xyz, axis=0)
+        self.xyz_var = np.var(self.xyz, axis=0)
+        self.scale_mean = np.mean(self.scale, axis=0)
+        self.scale_var = np.var(self.scale, axis=0)
 
 def naive_gaussian():
     gau_xyz = np.array([

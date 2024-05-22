@@ -198,8 +198,92 @@ class OpenGLRenderer(GaussianRenderBase):
         util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
         util.set_uniform_v3(self.program, camera.get_htanfovxy_focal(), "hfovxy_focal")
 
+    def update_ray_direction(self, camera: util.Camera, mouse_pos_2d):
+        mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, camera.get_view_matrix(), camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+        ray_direction = mouse_pos_3d-camera.position
+        ray_direction = ray_direction/np.linalg.norm(ray_direction)
+        util.set_uniform_v3(self.program, ray_direction, "ray_direction")
+        return
+   
     def draw(self):
         gl.glUseProgram(self.program)
         gl.glBindVertexArray(self.vao)
         num_gau = len(self.gaussians)
+        # an instance renders 2 TRIANGLES, by rendering 6 different points, done as many times as number of gaussians
         gl.glDrawElementsInstanced(gl.GL_TRIANGLES, len(self.quad_f.reshape(-1)), gl.GL_UNSIGNED_INT, None, num_gau)
+
+class OpenGLRendererAxes(GaussianRenderBase):
+    def __init__(self, w, h):
+        super().__init__()
+        gl.glViewport(0, 0, w, h)
+        self.program = util.load_shaders('shaders/line_vert.glsl', 'shaders/line_frag.glsl')
+
+        # Line data for gaussian axes
+        self.lines = np.array([
+            1,  0, 0,
+            -1, 0, 0,
+            0, 1, 0,
+            0, -1, 0,
+            0, 0, 1,
+            0, 0, -1
+        ], dtype=np.float32).reshape(6, 3)
+
+        # load quad geometry
+        vao, buffer_id = util.set_attributes(self.program, ["lines"], [self.lines])
+        self.vao = vao
+        self.gau_bufferid = None
+        self.index_bufferid = None
+        # opengl settings
+        gl.glDisable(gl.GL_CULL_FACE)
+        gl.glEnable(gl.GL_BLEND)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+
+        self.update_vsync()
+
+    def update_vsync(self):
+        if wglSwapIntervalEXT is not None:
+            wglSwapIntervalEXT(1 if self.reduce_updates else 0)
+
+    def update_gaussian_data(self, gaus: util_gau.GaussianData):
+        self.gaussians = gaus
+        # load gaussian geometry
+        gaussian_data = gaus.flat()
+        self.gau_bufferid = util.set_storage_buffer_data(self.program, "gaussian_data", gaussian_data, 
+                                                         bind_idx=0,
+                                                         buffer_id=self.gau_bufferid)
+        util.set_uniform_1int(self.program, gaus.sh_dim, "sh_dim")
+
+    def sort_and_update(self, camera: util.Camera):
+        index = _sort_gaussian(self.gaussians, camera.get_view_matrix())
+        self.index_bufferid = util.set_storage_buffer_data(self.program, "gi", index, 
+                                                           bind_idx=1,
+                                                           buffer_id=self.index_bufferid)
+        return
+   
+    def set_scale_modifier(self, modifier):
+        util.set_uniform_1f(self.program, modifier, "scale_modifier")
+
+    def set_frame_modifier(self, modifier):
+        util.set_uniform_1f(self.program, modifier, "frame_modifier")
+
+    def set_render_mod(self, mod: int):
+        util.set_uniform_1int(self.program, mod, "render_mod")
+
+    def set_render_reso(self, w, h):
+        gl.glViewport(0, 0, w, h)
+
+    def update_camera_pose(self, camera: util.Camera):
+        view_mat = camera.get_view_matrix()
+        util.set_uniform_mat4(self.program, view_mat, "view_matrix")
+        util.set_uniform_v3(self.program, camera.position, "cam_pos")
+
+    def update_camera_intrin(self, camera: util.Camera):
+        proj_mat = camera.get_project_matrix()
+        util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
+        util.set_uniform_v3(self.program, camera.get_htanfovxy_focal(), "hfovxy_focal")
+
+    def draw(self):
+        gl.glUseProgram(self.program)
+        gl.glBindVertexArray(self.vao)
+        num_gau = len(self.gaussians)
+        gl.glDrawArraysInstanced(gl.GL_LINES, 0, len(self.lines.reshape(-1)), num_gau)
