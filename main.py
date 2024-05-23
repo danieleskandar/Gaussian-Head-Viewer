@@ -53,7 +53,7 @@ gaussians = util_gau.naive_gaussian()
 g_show_head_avatars_win = True
 g_head_avatar_checkboxes = []
 g_head_avatars = []
-g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)), )
+g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)))
 
 ######################
 # Head Avatars Actions
@@ -76,6 +76,8 @@ def open_head_avatar_ply():
             g_show_hair_color.append(False)
             g_show_head_color.append(False)
             g_hair_scale.append(1)
+            g_wave_frequency.append(0)
+            g_wave_height.append(0)
         except RuntimeError as e:
             pass
 
@@ -92,6 +94,8 @@ g_head_color = []
 g_show_hair_color = []
 g_show_head_color = []
 g_hair_scale = []
+g_wave_frequency = []
+g_wave_height = []
 
 ################################
 # Head Avatar Controller Actions
@@ -112,7 +116,15 @@ def select_closest_head_avatar():
         if g_head_avatar_checkboxes[i]:
             N = g_head_avatars[i].xyz.shape[0]
             d = np.hstack([np.ones((N, 1)) * j, np.zeros((N, 2))])
-            all_xyz.append(g_head_avatars[i].xyz + d)
+            xyz = g_head_avatars[i].xyz + d
+
+            t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND)
+            for k in range(N_HAIR_STRANDS):
+                offset = g_wave_height[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t)
+                xyz[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :] += offset[:, np.newaxis]
+
+            all_xyz.append(xyz)
+
             j += 1
     all_xyz = np.vstack(all_xyz).astype(np.float32)
 
@@ -126,8 +138,8 @@ def select_closest_head_avatar():
     ray_projection = (all_xyz - g_camera.position) @ ray_direction
     # Compute closest point on the ray for each point
     closest_points_on_ray = g_camera.position + ray_projection[:, np.newaxis] * ray_direction
-    # Compute distances between each point and its closest point on the ray and distances to the camera
-    distances = np.linalg.norm(all_xyz - closest_points_on_ray, axis=1) + np.linalg.norm(all_xyz - g_camera.position, axis=1)
+    # Compute distances between each point and its closest point on the ray
+    distances = np.linalg.norm(all_xyz - closest_points_on_ray, axis=1)
 
     # Get index of the closest point
     closest_point_index = np.argmin(distances)
@@ -167,21 +179,28 @@ def merge_head_avatars():
             N = g_head_avatars[i].xyz.shape[0]
             d = np.hstack([np.ones((N, 1)) * j, np.zeros((N, 2))])
             xyz = xyz + d
-            
-            # Slice data
-            if g_show_hair[i] and not g_show_head[i]:
-                xyz, rot, scale, opacity, sh = g_head_avatars[i].slice_data(0, N_HAIR_GAUSSIANS)
-            elif not g_show_hair[i] and g_show_head[i]:
-                xyz, rot, scale, opacity, sh = g_head_avatars[i].slice_data(N_HAIR_GAUSSIANS, N)
 
             # Color Data
-            if g_show_hair_color[i]:
+            if g_show_hair[i] and g_show_hair_color[i]:
                 sh[:N_HAIR_GAUSSIANS, 0:3] = np.asarray(g_hair_color[i]).T
-            if g_show_head_color[i]:
+            if g_show_head[i] and g_show_head_color[i]:
                 sh[N_HAIR_GAUSSIANS:, 0:3] = np.asarray(g_head_color[i]).T
 
             # Scale Hair Data
-            scale[:N_HAIR_GAUSSIANS, :] *= g_hair_scale[i]
+            if g_show_hair[i]:
+                scale[:N_HAIR_GAUSSIANS, :] *= g_hair_scale[i]
+
+            # Apply curls and waves
+            t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND)
+            offset = g_wave_height[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t)
+            for k in range(N_HAIR_STRANDS):
+                xyz[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :] += offset[:, np.newaxis]
+            
+            # Slice data
+            if g_show_hair[i] and not g_show_head[i]:
+                xyz, rot, scale, opacity, sh = util_gau.slice_data(0, N_HAIR_GAUSSIANS, (xyz, rot, scale, opacity, sh))
+            elif not g_show_hair[i] and g_show_head[i]:
+                xyz, rot, scale, opacity, sh = util_gau.slice_data(N_HAIR_GAUSSIANS, N, (xyz, rot, scale, opacity, sh))
 
             all_xyz.append(xyz)
             all_rot.append(rot)
@@ -300,7 +319,8 @@ def main():
 
     # # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
-        g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale
+        g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale, \
+        g_wave_frequency, g_wave_height
         
     imgui.create_context()
     if args.hidpi:
@@ -569,7 +589,27 @@ def main():
 
                 if imgui.button(label="Reset Hair Scale"):
                     g_hair_scale[i] = 1
-                    changed = True        
+                    render_head_avatars()   
+
+                changed, g_wave_frequency[i] = imgui.slider_float("Wave Frequency", g_wave_frequency[i], 0, 5, "Wave Frequency = %.2f")
+                if changed:
+                    render_head_avatars()
+
+                imgui.same_line()
+
+                if imgui.button(label="Reset Wave Frequency"):
+                    g_wave_frequency[i] = 0
+                    render_head_avatars() 
+
+                changed, g_wave_height[i] = imgui.slider_float("Wave Height", g_wave_height[i], 0, 0.05, "Wave Height = %.3f")
+                if changed:
+                    render_head_avatars()
+
+                imgui.same_line()
+
+                if imgui.button(label="Reset Wave Height"):
+                    g_wave_height[i] = 0
+                    render_head_avatars()      
 
             imgui.end()
         

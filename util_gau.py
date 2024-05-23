@@ -2,6 +2,9 @@ import numpy as np
 from plyfile import PlyData
 from dataclasses import dataclass
 
+def slice_data(start, end, data):
+        return np.copy(data[0][start:end, :]), np.copy(data[1][start:end, :]), np.copy(data[2][start:end, :]), np.copy(data[3][start:end, :]), np.copy(data[4][start:end, :])
+
 @dataclass
 class GaussianData:
     xyz: np.ndarray
@@ -26,9 +29,6 @@ class GaussianData:
         self.xyz_var = np.var(self.xyz, axis=0)
         self.scale_mean = np.mean(self.scale, axis=0)
         self.scale_var = np.var(self.scale, axis=0)
-
-    def slice_data(self, start, end):
-        return np.copy(self.xyz[start:end, :]), np.copy(self.rot[start:end, :]), np.copy(self.scale[start:end, :]), np.copy(self.opacity[start:end, :]), np.copy(self.sh[start:end, :])
 
     def get_data(self):
         return np.copy(self.xyz), np.copy(self.rot), np.copy(self.scale), np.copy(self.opacity), np.copy(self.sh)
