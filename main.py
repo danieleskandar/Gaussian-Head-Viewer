@@ -42,9 +42,25 @@ g_render_mode = 8
 # Constants
 ###########
 
-N_HAIR_GAUSSIANS = 4650
-N_HAIR_STRANDS = 150
+N_HAIR_GAUSSIANS = 310
+N_HAIR_STRANDS = 10
 N_GAUSSIANS_PER_STRAND = 31
+
+##################
+# Utility Function
+##################
+def rotmat2qvec(R):
+    Rxx, Ryx, Rzx, Rxy, Ryy, Rzy, Rxz, Ryz, Rzz = R.flat
+    K = np.array([
+        [Rxx - Ryy - Rzz, 0, 0, 0],
+        [Ryx + Rxy, Ryy - Rxx - Rzz, 0, 0],
+        [Rzx + Rxz, Rzy + Ryz, Rzz - Rxx - Ryy, 0],
+        [Ryz - Rzy, Rzx - Rxz, Rxy - Ryx, Rxx + Ryy + Rzz]]) / 3.0
+    eigvals, eigvecs = np.linalg.eigh(K)
+    qvec = eigvecs[[3, 0, 1, 2], np.argmax(eigvals)]
+    if qvec[0] < 0:
+        qvec *= -1
+    return qvec
 
 ########################
 # Head Avatars Variables
@@ -61,7 +77,7 @@ g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.
 def open_head_avatar_ply():
     file_path = filedialog.askopenfilename(
         title="open ply",
-        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\hair\\point_cloud\\iteration_30000",
+        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\point_cloud\\iteration_30000",
         filetypes=[('ply file', '.ply')]
     )
     if file_path:
@@ -78,6 +94,7 @@ def open_head_avatar_ply():
             g_hair_scale.append(1)
             g_wave_frequency.append(0)
             g_wave_height.append(0)
+            g_frame.append(0)
         except RuntimeError as e:
             pass
 
@@ -96,6 +113,7 @@ g_show_head_color = []
 g_hair_scale = []
 g_wave_frequency = []
 g_wave_height = []
+g_frame = []
 
 ################################
 # Head Avatar Controller Actions
@@ -174,6 +192,12 @@ def merge_head_avatars():
         if g_head_avatar_checkboxes[i] and (g_show_hair[i] or g_show_head[i]):
             # Get data
             xyz, rot, scale, opacity, sh = g_head_avatars[i].get_data()
+
+            # Load correct frame
+            if g_frame[i] > 0:
+                xyz[:N_HAIR_GAUSSIANS] = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
+                frenet_rot = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
+                rot[:N_HAIR_GAUSSIANS] = np.array([rotmat2qvec(R) for R in frenet_rot])
 
             # Add displacement to gaussian means
             N = g_head_avatars[i].xyz.shape[0]
@@ -320,7 +344,7 @@ def main():
     # # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
         g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale, \
-        g_wave_frequency, g_wave_height
+        g_wave_frequency, g_wave_height, g_frame
         
     imgui.create_context()
     if args.hidpi:
@@ -609,7 +633,11 @@ def main():
 
                 if imgui.button(label="Reset Wave Height"):
                     g_wave_height[i] = 0
-                    render_head_avatars()      
+                    render_head_avatars() 
+
+                changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 98, "Frame = %d")
+                if changed:
+                    render_head_avatars()     
 
             imgui.end()
         
