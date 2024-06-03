@@ -11,6 +11,7 @@ from tkinter import filedialog
 import os
 import sys
 import argparse
+import time
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 
 # Add the directory containing main.py to the Python path
@@ -42,13 +43,22 @@ g_render_mode = 8
 # Constants
 ###########
 
+CLICK_THRESHOLD = 0.2
+DISPLACEMENT_FACTOR = 1
 N_HAIR_GAUSSIANS = 310
 N_HAIR_STRANDS = 10
 N_GAUSSIANS_PER_STRAND = 31
 
-##################
-# Utility Function
-##################
+
+############################
+# Mouse Controller Variables
+############################
+
+right_click_start_time = None
+
+###################
+# Utility Functions
+###################
 def rotmat2qvec(R):
     Rxx, Ryx, Rzx, Rxy, Ryy, Rzy, Rxz, Ryz, Rzz = R.flat
     K = np.array([
@@ -69,6 +79,7 @@ gaussians = util_gau.naive_gaussian()
 g_show_head_avatars_win = True
 g_head_avatar_checkboxes = []
 g_head_avatars = []
+g_head_avatar_means = []
 g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)))
 
 ######################
@@ -84,6 +95,7 @@ def open_head_avatar_ply():
         try:
             g_head_avatar = util_gau.load_ply(file_path)
             g_head_avatars.append(g_head_avatar)
+            g_head_avatar_means.append(np.mean(g_head_avatar.xyz, axis=0))
             g_head_avatar_checkboxes.append(True)
             g_show_hair.append(True)
             g_show_head.append(True)
@@ -119,58 +131,52 @@ g_frame = []
 # Head Avatar Controller Actions
 ################################
 def select_closest_head_avatar():
-    global g_selected_head_avatar_index, g_selected_head_avatar_name
+    global g_selected_head_avatar_index, g_selected_head_avatar_name, g_head_avatar_means
 
     if len(g_head_avatars) == 0 or np.sum(g_head_avatar_checkboxes) == 0:
         g_selected_head_avatar_index = -1
         g_selected_head_avatar_name = "None"
         return
 
-    # Get merged points
-    j = 0
-    l = np.sum(g_head_avatar_checkboxes)
     all_xyz = []
     for i in range(len(g_head_avatars)):
         if g_head_avatar_checkboxes[i]:
-            N = g_head_avatars[i].xyz.shape[0]
-            d = np.hstack([np.ones((N, 1)) * j, np.zeros((N, 2))])
-            xyz = g_head_avatars[i].xyz + d
-
-            t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND)
-            for k in range(N_HAIR_STRANDS):
-                offset = g_wave_height[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t)
-                xyz[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :] += offset[:, np.newaxis]
-
-            all_xyz.append(xyz)
-
-            j += 1
+            all_xyz.append(g_head_avatar_means[i])
     all_xyz = np.vstack(all_xyz).astype(np.float32)
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
     mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+
     # Compute ray direction
     ray_direction = mouse_pos_3d - g_camera.position
     ray_direction = ray_direction / np.linalg.norm(ray_direction)
+
     # Compute dot product to project each vector onto the ray
     ray_projection = (all_xyz - g_camera.position) @ ray_direction
-    # Compute closest point on the ray for each point
+
+    # Compute closest point on the ray for each head avatar mean
     closest_points_on_ray = g_camera.position + ray_projection[:, np.newaxis] * ray_direction
-    # Compute distances between each point and its closest point on the ray
+
+    # Compute distances between each head avatar mean and its closest point on the ray
     distances = np.linalg.norm(all_xyz - closest_points_on_ray, axis=1)
+
+    # Get minimal distance 
+    min_dist = np.min(distances)
+    if min_dist >= DISPLACEMENT_FACTOR / 2:
+        g_selected_head_avatar_index = -1
+        g_selected_head_avatar_name = "None"
+        return
 
     # Get index of the closest point
     closest_point_index = np.argmin(distances)
 
     # Get index and name of the selected head avatar
-    g_selected_head_avatar_index = np.where(np.cumsum(g_head_avatar_checkboxes) == closest_point_index // N + 1)[0][0]
+    g_selected_head_avatar_index = np.where(np.cumsum(g_head_avatar_checkboxes) == closest_point_index + 1)[0][0]
     g_selected_head_avatar_name = "Head Avatar " + str(g_selected_head_avatar_index + 1)
 
-#################
-# 
-#################
 def merge_head_avatars():
-    global g_selected_head_avatar_index, g_selected_head_avatar_name
+    global g_selected_head_avatar_index, g_selected_head_avatar_name, g_head_avatar_means
 
     if len(g_head_avatars) == 0 or np.sum(g_head_avatar_checkboxes) == 0:
         g_selected_head_avatar_index = -1
@@ -189,10 +195,10 @@ def merge_head_avatars():
     all_opacity = []
     all_sh = []
     for i in range(len(g_head_avatars)):
-        if g_head_avatar_checkboxes[i] and (g_show_hair[i] or g_show_head[i]):
-            # Get data
-            xyz, rot, scale, opacity, sh = g_head_avatars[i].get_data()
+        # Get data
+        xyz, rot, scale, opacity, sh = g_head_avatars[i].get_data()
 
+        if g_head_avatar_checkboxes[i] and (g_show_hair[i] or g_show_head[i]):
             # Load correct frame
             if g_frame[i] > 0:
                 xyz[:N_HAIR_GAUSSIANS] = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
@@ -201,8 +207,8 @@ def merge_head_avatars():
 
             # Add displacement to gaussian means
             N = g_head_avatars[i].xyz.shape[0]
-            d = np.hstack([np.ones((N, 1)) * j, np.zeros((N, 2))])
-            xyz = xyz + d
+            d = np.hstack([np.ones((N, 1)) * j * DISPLACEMENT_FACTOR, np.zeros((N, 2))])
+            xyz += d
 
             # Color Data
             if g_show_hair[i] and g_show_hair_color[i]:
@@ -220,19 +226,26 @@ def merge_head_avatars():
             for k in range(N_HAIR_STRANDS):
                 xyz[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :] += offset[:, np.newaxis]
             
-            # Slice data
+            # Changed opacity of unselected parts
             if g_show_hair[i] and not g_show_head[i]:
-                xyz, rot, scale, opacity, sh = util_gau.slice_data(0, N_HAIR_GAUSSIANS, (xyz, rot, scale, opacity, sh))
+                opacity[N_HAIR_GAUSSIANS:, :] = np.zeros_like(opacity[N_HAIR_GAUSSIANS:, :])
             elif not g_show_hair[i] and g_show_head[i]:
-                xyz, rot, scale, opacity, sh = util_gau.slice_data(N_HAIR_GAUSSIANS, N, (xyz, rot, scale, opacity, sh))
+                opacity[:N_HAIR_GAUSSIANS, :] = np.zeros_like(opacity[:N_HAIR_GAUSSIANS, :])
 
-            all_xyz.append(xyz)
-            all_rot.append(rot)
-            all_scale.append(scale)
-            all_opacity.append(opacity)
-            all_sh.append(sh[:, 0:3])
+            # Save Gaussian means
+            g_head_avatar_means[i] = np.mean(xyz, axis=0)
 
             j += 1
+        else:
+            opacity *= 0
+        
+        # Append Gaussian properties to the Gaussian object that will be sent to the shader
+        all_xyz.append(xyz)
+        all_rot.append(rot)
+        all_scale.append(scale)
+        all_opacity.append(opacity)
+        all_sh.append(sh[:, 0:3])
+            
 
     if len(all_xyz) == 0:
         g_selected_head_avatar_index = -1
@@ -294,9 +307,20 @@ def mouse_button_callback(window, button, action, mod):
     g_camera.is_leftmouse_pressed = (button == glfw.MOUSE_BUTTON_LEFT and pressed)
     g_camera.is_rightmouse_pressed = (button == glfw.MOUSE_BUTTON_RIGHT and pressed)
 
+    # Mouse Controller Variables
+    global right_click_start_time, CLICK_THRESHOLD
+
+    # Record the time when the left mouse button is pressed
+    if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.PRESS:
+        right_click_start_time = time.time()
+
     # Select closest head avatar
-    if action == glfw.RELEASE:
-        select_closest_head_avatar()
+    if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.RELEASE:
+        end_time = time.time()
+        duration = end_time - right_click_start_time
+        
+        if duration < CLICK_THRESHOLD:
+            select_closest_head_avatar()
 
 def wheel_callback(window, dx, dy):
     g_camera.process_wheel(dx, dy)
