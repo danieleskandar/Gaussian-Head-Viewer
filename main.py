@@ -45,10 +45,11 @@ g_render_mode = 8
 
 CLICK_THRESHOLD = 0.2
 DISPLACEMENT_FACTOR = 1
+
+N_GAUSSIANS = None
 N_HAIR_GAUSSIANS = 310
 N_HAIR_STRANDS = 10
 N_GAUSSIANS_PER_STRAND = 31
-
 
 ############################
 # Mouse Controller Variables
@@ -86,6 +87,8 @@ g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.
 # Head Avatars Actions
 ######################
 def open_head_avatar_ply():
+    global gaussians, N_GAUSSIANS
+
     file_path = filedialog.askopenfilename(
         title="open ply",
         initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\point_cloud\\iteration_30000",
@@ -93,9 +96,12 @@ def open_head_avatar_ply():
     )
     if file_path:
         try:
-            g_head_avatar = util_gau.load_ply(file_path)
-            g_head_avatars.append(g_head_avatar)
-            g_head_avatar_means.append(np.mean(g_head_avatar.xyz, axis=0))
+            # Load head avatar
+            head_avatar = util_gau.load_ply(file_path)
+
+            # Fill controller arrays
+            g_head_avatars.append(head_avatar)
+            g_head_avatar_means.append(np.mean(head_avatar.xyz, axis=0))
             g_head_avatar_checkboxes.append(True)
             g_show_hair.append(True)
             g_show_head.append(True)
@@ -105,8 +111,27 @@ def open_head_avatar_ply():
             g_show_head_color.append(False)
             g_hair_scale.append(1)
             g_wave_frequency.append(0)
-            g_wave_height.append(0)
+            g_wave_amplitude.append(0)
             g_frame.append(0)
+
+            # Initialize N_GAUSSIANS
+            N_GAUSSIANS = head_avatar.xyz.shape[0]
+
+            # Append head avatar to the gaussians object sent to the shader
+            if len(g_head_avatars) == 1:
+                xyz, rot, scale, opacity, sh = head_avatar.get_data()
+                gaussians.xyz = xyz
+                gaussians.rot = rot
+                gaussians.scale = scale
+                gaussians.opacity = opacity
+                gaussians.sh = sh
+            else:
+                gaussians.xyz = np.vstack([gaussians.xyz, head_avatar.xyz]).astype(np.float32)
+                gaussians.rot = np.vstack([gaussians.rot, head_avatar.rot]).astype(np.float32)
+                gaussians.scale = np.vstack([gaussians.scale, head_avatar.scale]).astype(np.float32)
+                gaussians.opacity = np.vstack([gaussians.opacity, head_avatar.opacity]).astype(np.float32)
+                gaussians.sh = np.vstack([gaussians.sh, head_avatar.sh]).astype(np.float32)
+
         except RuntimeError as e:
             pass
 
@@ -124,25 +149,22 @@ g_show_hair_color = []
 g_show_head_color = []
 g_hair_scale = []
 g_wave_frequency = []
-g_wave_height = []
+g_wave_amplitude = []
 g_frame = []
 
 ################################
 # Head Avatar Controller Actions
 ################################
 def select_closest_head_avatar():
-    global g_selected_head_avatar_index, g_selected_head_avatar_name, g_head_avatar_means
+    global g_selected_head_avatar_index, g_selected_head_avatar_name
 
     if len(g_head_avatars) == 0 or np.sum(g_head_avatar_checkboxes) == 0:
         g_selected_head_avatar_index = -1
         g_selected_head_avatar_name = "None"
         return
 
-    all_xyz = []
-    for i in range(len(g_head_avatars)):
-        if g_head_avatar_checkboxes[i]:
-            all_xyz.append(g_head_avatar_means[i])
-    all_xyz = np.vstack(all_xyz).astype(np.float32)
+    # Get means of displayed head avatars
+    avatar_means = np.vstack([g_head_avatar_means[i] for i in range(len(g_head_avatars)) if g_head_avatar_checkboxes[i]])
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
@@ -153,13 +175,13 @@ def select_closest_head_avatar():
     ray_direction = ray_direction / np.linalg.norm(ray_direction)
 
     # Compute dot product to project each vector onto the ray
-    ray_projection = (all_xyz - g_camera.position) @ ray_direction
+    ray_projection = (avatar_means - g_camera.position) @ ray_direction
 
     # Compute closest point on the ray for each head avatar mean
     closest_points_on_ray = g_camera.position + ray_projection[:, np.newaxis] * ray_direction
 
     # Compute distances between each head avatar mean and its closest point on the ray
-    distances = np.linalg.norm(all_xyz - closest_points_on_ray, axis=1)
+    distances = np.linalg.norm(avatar_means - closest_points_on_ray, axis=1)
 
     # Get minimal distance 
     min_dist = np.min(distances)
@@ -172,98 +194,104 @@ def select_closest_head_avatar():
     closest_point_index = np.argmin(distances)
 
     # Get index and name of the selected head avatar
-    g_selected_head_avatar_index = np.where(np.cumsum(g_head_avatar_checkboxes) == closest_point_index + 1)[0][0]
+    g_selected_head_avatar_index = np.where(np.cumsum(g_head_avatar_checkboxes) - 1 == closest_point_index)[0][0]
     g_selected_head_avatar_name = "Head Avatar " + str(g_selected_head_avatar_index + 1)
 
-def merge_head_avatars():
-    global g_selected_head_avatar_index, g_selected_head_avatar_name, g_head_avatar_means
+def update_displacements_and_opacities():
+    global gaussians, g_head_avatar_means
 
-    if len(g_head_avatars) == 0 or np.sum(g_head_avatar_checkboxes) == 0:
-        g_selected_head_avatar_index = -1
-        g_selected_head_avatar_name = "None"
-        return g_empty_gaussian
-
-    # N: number of gaussians in head avatar
-    # j: counter used to calculate amount of displacement
-    # l: number of selected head avatars
-    # d: displacement added to the x component of the gaussian means
-    j = 0
-    l = np.sum(g_head_avatar_checkboxes)
-    all_xyz = []
-    all_rot = []
-    all_scale = []
-    all_opacity = []
-    all_sh = []
     for i in range(len(g_head_avatars)):
-        # Get data
-        xyz, rot, scale, opacity, sh = g_head_avatars[i].get_data()
+        xyz, _, _, opacity, _ = g_head_avatars[i].get_data()
 
         if g_head_avatar_checkboxes[i] and (g_show_hair[i] or g_show_head[i]):
-            # Load correct frame
-            if g_frame[i] > 0:
-                xyz[:N_HAIR_GAUSSIANS] = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-                frenet_rot = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
-                rot[:N_HAIR_GAUSSIANS] = np.array([rotmat2qvec(R) for R in frenet_rot])
-
-            # Add displacement to gaussian means
-            N = g_head_avatars[i].xyz.shape[0]
-            d = np.hstack([np.ones((N, 1)) * j * DISPLACEMENT_FACTOR, np.zeros((N, 2))])
-            xyz += d
-
-            # Color Data
-            if g_show_hair[i] and g_show_hair_color[i]:
-                sh[:N_HAIR_GAUSSIANS, 0:3] = np.asarray(g_hair_color[i]).T
-            if g_show_head[i] and g_show_head_color[i]:
-                sh[N_HAIR_GAUSSIANS:, 0:3] = np.asarray(g_head_color[i]).T
-
-            # Scale Hair Data
-            if g_show_hair[i]:
-                scale[:N_HAIR_GAUSSIANS, :] *= g_hair_scale[i]
-
-            # Apply curls and waves
-            t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND)
-            offset = g_wave_height[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t)
-            for k in range(N_HAIR_STRANDS):
-                xyz[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :] += offset[:, np.newaxis]
-            
-            # Changed opacity of unselected parts
-            if g_show_hair[i] and not g_show_head[i]:
-                opacity[N_HAIR_GAUSSIANS:, :] = np.zeros_like(opacity[N_HAIR_GAUSSIANS:, :])
-            elif not g_show_hair[i] and g_show_head[i]:
-                opacity[:N_HAIR_GAUSSIANS, :] = np.zeros_like(opacity[:N_HAIR_GAUSSIANS, :])
-
-            # Save Gaussian means
-            g_head_avatar_means[i] = np.mean(xyz, axis=0)
-
-            j += 1
+            update_means(i)
+            gaussians.opacity[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] = np.vstack([opacity[:N_HAIR_GAUSSIANS, :] * g_show_hair[i], opacity[N_HAIR_GAUSSIANS:, :] * g_show_head[i]])
         else:
-            opacity *= 0
-        
-        # Append Gaussian properties to the Gaussian object that will be sent to the shader
-        all_xyz.append(xyz)
-        all_rot.append(rot)
-        all_scale.append(scale)
-        all_opacity.append(opacity)
-        all_sh.append(sh[:, 0:3])
-            
+            gaussians.opacity[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] = 0
 
-    if len(all_xyz) == 0:
-        g_selected_head_avatar_index = -1
-        g_selected_head_avatar_name = "None"
-        return g_empty_gaussian
+def update_head_opacity():
+    i = g_selected_head_avatar_index
+    if g_show_head[i]:
+        _, _, _, opacity, _ = g_head_avatars[i].get_data()
+        gaussians.opacity[i*N_GAUSSIANS+N_HAIR_GAUSSIANS:(i+1)*N_GAUSSIANS, :] = opacity[N_HAIR_GAUSSIANS:, :]
+    else:
+        gaussians.opacity[i*N_GAUSSIANS+N_HAIR_GAUSSIANS:(i+1)*N_GAUSSIANS, :] = 0
 
-    return util_gau.GaussianData(
-        np.vstack(all_xyz).astype(np.float32),
-        np.vstack(all_rot).astype(np.float32),
-        np.vstack(all_scale).astype(np.float32),
-        np.vstack(all_opacity).astype(np.float32),
-        np.vstack(all_sh).astype(np.float32),
-    )
+def update_hair_opacity():
+    i = g_selected_head_avatar_index
+    if g_show_hair[i]:
+        _, _, _, opacity, _ = g_head_avatars[i].get_data()
+        gaussians.opacity[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = opacity[:N_HAIR_GAUSSIANS, :]
+    else:
+        gaussians.opacity[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = 0
 
-def render_head_avatars():
-    global gaussians
-    gaussians = merge_head_avatars()
-    g_renderer.update_gaussian_data(gaussians)
+def update_head_color():
+    i = g_selected_head_avatar_index
+    if g_show_head_color[i]:
+        gaussians.sh[i*N_GAUSSIANS+N_HAIR_GAUSSIANS:(i+1)*N_GAUSSIANS, 0:3] = np.asarray(g_head_color[i]).T
+    else:
+        _, _, _, _, sh = g_head_avatars[i].get_data()
+        gaussians.sh[i*N_GAUSSIANS+N_HAIR_GAUSSIANS:(i+1)*N_GAUSSIANS, :] = sh[N_HAIR_GAUSSIANS:, :]
+
+def update_hair_color():
+    i = g_selected_head_avatar_index
+    if g_show_hair_color[i]:
+        gaussians.sh[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, 0:3] = np.asarray(g_hair_color[i]).T
+    else:
+        _, _, _, _, sh = g_head_avatars[i].get_data()
+        gaussians.sh[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = sh[:N_HAIR_GAUSSIANS, :]
+
+def update_hair_scale():
+    i = g_selected_head_avatar_index
+    _, _, scale, _, _ = g_head_avatars[i].get_data()
+    gaussians.scale[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = scale[:N_HAIR_GAUSSIANS] * g_hair_scale[i]
+
+def update_frame():
+    i = g_selected_head_avatar_index
+    update_means(i)
+    _, rot = get_frame(i)
+    gaussians.rot[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = rot
+
+
+def update_means(head_avatar_index):
+    i = head_avatar_index
+
+    xyz, _, _, _, _ = g_head_avatars[i].get_data()
+    gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] = xyz
+
+    f, _ = get_frame(i)
+    gaussians.xyz[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = f
+
+    d = get_displacement(i)
+    gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] += d
+
+    c = get_curls(i)
+    for k in range(N_HAIR_STRANDS):
+        gaussians.xyz[i*N_GAUSSIANS+k*N_GAUSSIANS_PER_STRAND:i*N_GAUSSIANS+(k+1)*N_GAUSSIANS_PER_STRAND, :] += c
+
+    g_head_avatar_means[i] = np.mean(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS], axis=0)
+
+
+
+def get_displacement(head_avatar_index):
+    i = head_avatar_index
+    j = np.cumsum(g_head_avatar_checkboxes)[i] - 1
+    return np.array([j * DISPLACEMENT_FACTOR, 0, 0]).astype(np.float32)
+
+def get_curls(head_avatar_index):
+    i = head_avatar_index
+    t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND)
+    return g_wave_amplitude[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t)[:, np.newaxis].astype(np.float32)
+
+def get_frame(head_avatar_index):
+    i = head_avatar_index
+    if g_frame[i] > 0:
+        xyz = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
+        rot = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
+        rot = np.array([rotmat2qvec(R) for R in rot])
+    else:
+        xyz, rot, _, _, _ = g_head_avatars[i].get_data()
+    return xyz[:N_HAIR_GAUSSIANS, :].astype(np.float32), rot[:N_HAIR_GAUSSIANS, :].astype(np.float32)
 
 #####################
 
@@ -368,7 +396,7 @@ def main():
     # # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
         g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale, \
-        g_wave_frequency, g_wave_height, g_frame
+        g_wave_frequency, g_wave_amplitude, g_frame
         
     imgui.create_context()
     if args.hidpi:
@@ -580,13 +608,15 @@ def main():
             # Load Head avatar button
             if imgui.button(label='open head avatar ply'):
                 open_head_avatar_ply()
-                render_head_avatars()
+                update_displacements_and_opacities()
+                g_renderer.update_gaussian_data(gaussians)
                 
             # Display Head Avatar Checkboxes
             for i in range(len(g_head_avatars)):
                 changed, g_head_avatar_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1}", g_head_avatar_checkboxes[i])
                 if changed:
-                    render_head_avatars()
+                    update_displacements_and_opacities()
+                    g_renderer.update_gaussian_data(gaussians)
             
             imgui.end()
 
@@ -601,67 +631,79 @@ def main():
 
                 changed, g_show_hair[i] = imgui.checkbox("Show Hair", g_show_hair[i])
                 if changed:
-                    render_head_avatars()
+                    update_hair_opacity()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 imgui.same_line()
 
                 changed, g_show_head[i] = imgui.checkbox("Show Head", g_show_head[i])
                 if changed:
-                    render_head_avatars()
+                    update_head_opacity()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_hair_color[i] = imgui.color_edit3("Hair Color", *g_hair_color[i])
                 if changed:
-                    render_head_avatars()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 imgui.same_line()
 
                 changed, g_show_hair_color[i] = imgui.checkbox("Show Hair Color", g_show_hair_color[i])
+                update_hair_color()
                 if changed:
-                    render_head_avatars()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_head_color[i] = imgui.color_edit3("Head Color", *g_head_color[i])
                 if changed:
-                    render_head_avatars()
+                    update_head_color()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 imgui.same_line()
 
                 changed, g_show_head_color[i] = imgui.checkbox("Show Head Color", g_show_head_color[i])
                 if changed:
-                    render_head_avatars()
+                    update_head_color()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_hair_scale[i] = imgui.slider_float("Hair Scale", g_hair_scale[i], 0.5, 2, "Hair Scale = %.3f")
                 if changed:
-                    render_head_avatars()
+                    update_hair_scale()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 imgui.same_line()
 
                 if imgui.button(label="Reset Hair Scale"):
                     g_hair_scale[i] = 1
-                    render_head_avatars()   
+                    update_hair_scale()
+                    g_renderer.update_gaussian_data(gaussians)   
 
                 changed, g_wave_frequency[i] = imgui.slider_float("Wave Frequency", g_wave_frequency[i], 0, 5, "Wave Frequency = %.2f")
                 if changed:
-                    render_head_avatars()
+                    update_means(g_selected_head_avatar_index)
+                    g_renderer.update_gaussian_data(gaussians)
 
                 imgui.same_line()
 
                 if imgui.button(label="Reset Wave Frequency"):
                     g_wave_frequency[i] = 0
-                    render_head_avatars() 
+                    update_means(g_selected_head_avatar_index)
+                    g_renderer.update_gaussian_data(gaussians) 
 
-                changed, g_wave_height[i] = imgui.slider_float("Wave Height", g_wave_height[i], 0, 0.05, "Wave Height = %.3f")
+                changed, g_wave_amplitude[i] = imgui.slider_float("Wave Amplitude", g_wave_amplitude[i], 0, 0.05, "Wave Amplitude = %.3f")
                 if changed:
-                    render_head_avatars()
+                    update_means(g_selected_head_avatar_index)
+                    g_renderer.update_gaussian_data(gaussians)
 
                 imgui.same_line()
 
                 if imgui.button(label="Reset Wave Height"):
-                    g_wave_height[i] = 0
-                    render_head_avatars() 
+                    g_wave_amplitude[i] = 0
+                    update_means(g_selected_head_avatar_index)
+                    g_renderer.update_gaussian_data(gaussians) 
 
                 changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 98, "Frame = %d")
                 if changed:
-                    render_head_avatars()     
+                    update_frame()
+                    g_renderer.update_gaussian_data(gaussians)     
 
             imgui.end()
         
