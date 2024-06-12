@@ -51,6 +51,15 @@ uniform vec3 cam_pos;
 uniform int sh_dim;
 uniform float scale_modifier;
 uniform int render_mod;  // > 0 render 0-ith SH dim, -1 depth, -2 bill board, -3 gaussian
+
+uniform int N_GAUSSIANS;
+uniform int N_HAIR_GAUSSIANS;
+uniform int cutting_mode;
+uniform float max_cutting_distance;
+uniform int coloring_mode;
+uniform int invert_z_plane;
+uniform float z_plane;
+uniform int selected_head_avatar_index;
 uniform vec3 ray_direction;
 
 out vec3 color;
@@ -162,22 +171,27 @@ void main()
     
     alpha = g_opacity;
 
+	if (cutting_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index && boxid < selected_head_avatar_index * N_GAUSSIANS + N_HAIR_GAUSSIANS) {	
+		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
+		vec3 closest_point = cam_pos + projection * ray_direction;
+		float distance = length(g_pos.xyz - closest_point);
+		alpha = distance < max_cutting_distance ? 0 : alpha;
+	}
+
+	if (coloring_mode == 1 && invert_z_plane == 0 && g_pos.z >= z_plane ) {
+		alpha = 0;
+	}
+
+	if (coloring_mode == 1 && invert_z_plane == 1 && g_pos.z <= z_plane ) {
+		alpha = 0;
+	}
+
 	if (render_mod == -1)
 	{
 		float depth = -g_pos_view.z;
 		depth = depth < 0.05 ? 1 : depth;
 		depth = 1 / depth;
 		color = vec3(depth, depth, depth);
-		return;
-	}
-
-	if (render_mod == -5)
-	{
-		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
-		vec3 closest_point = cam_pos + projection * ray_direction;
-		float distance = length(g_pos.xyz - closest_point);
-		distance = distance < 0.2 ? 1 : 0.2;
-		color = vec3(distance, distance, distance);
 		return;
 	}
 

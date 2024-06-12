@@ -44,18 +44,21 @@ g_render_mode = 8
 ###########
 
 CLICK_THRESHOLD = 0.2
-DISPLACEMENT_FACTOR = 1
+DISPLACEMENT_FACTOR = 1.5
 
-N_GAUSSIANS = None
-N_HAIR_GAUSSIANS = 310
-N_HAIR_STRANDS = 10
+N_GAUSSIANS = 0
+N_HAIR_STRANDS = 4000
 N_GAUSSIANS_PER_STRAND = 31
+N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
+g_max_cutting_distance = 0.2
+head_file = "large"
 
 ############################
 # Mouse Controller Variables
 ############################
 
 right_click_start_time = None
+left_click_start_time = None
 
 ###################
 # Utility Functions
@@ -81,17 +84,23 @@ g_show_head_avatars_win = True
 g_head_avatar_checkboxes = []
 g_head_avatars = []
 g_head_avatar_means = []
+g_z_plane = 1
+g_z_max = 1
+g_z_min = -1
 g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)))
+g_cutting_mode = False
+g_coloring_mode = False
+g_invert_z_plane = False
 
 ######################
 # Head Avatars Actions
 ######################
 def open_head_avatar_ply():
-    global gaussians, N_GAUSSIANS
+    global gaussians, N_GAUSSIANS, g_z_min, g_z_max, g_z_plane
 
     file_path = filedialog.askopenfilename(
         title="open ply",
-        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\point_cloud\\iteration_30000",
+        initialdir=f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head ({head_file})\\point_cloud\\iteration_30000",
         filetypes=[('ply file', '.ply')]
     )
     if file_path:
@@ -113,12 +122,16 @@ def open_head_avatar_ply():
             g_wave_frequency.append(0)
             g_wave_amplitude.append(0)
             g_frame.append(0)
-
-            # Initialize N_GAUSSIANS
-            N_GAUSSIANS = head_avatar.xyz.shape[0]
-
-            # Append head avatar to the gaussians object sent to the shader
+            
             if len(g_head_avatars) == 1:
+                # Initialize global variables
+                g_z_min = np.min(head_avatar.xyz[:, 2])
+                g_z_max = np.max(head_avatar.xyz[:, 2])                
+                g_z_plane = g_z_max
+                N_GAUSSIANS = head_avatar.xyz.shape[0]
+                g_renderer.update_N_GAUSSIANS(N_GAUSSIANS)
+
+                # Append head avatar to the gaussians object sent to the shader
                 xyz, rot, scale, opacity, sh = head_avatar.get_data()
                 gaussians.xyz = xyz
                 gaussians.rot = rot
@@ -126,6 +139,7 @@ def open_head_avatar_ply():
                 gaussians.opacity = opacity
                 gaussians.sh = sh
             else:
+                # Append head avatar to the gaussians object sent to the shader
                 gaussians.xyz = np.vstack([gaussians.xyz, head_avatar.xyz]).astype(np.float32)
                 gaussians.rot = np.vstack([gaussians.rot, head_avatar.rot]).astype(np.float32)
                 gaussians.scale = np.vstack([gaussians.scale, head_avatar.scale]).astype(np.float32)
@@ -198,7 +212,7 @@ def select_closest_head_avatar():
     g_selected_head_avatar_name = "Head Avatar " + str(g_selected_head_avatar_index + 1)
 
 def update_displacements_and_opacities():
-    global gaussians, g_head_avatar_means
+    global gaussians
 
     for i in range(len(g_head_avatars)):
         xyz, _, _, opacity, _ = g_head_avatars[i].get_data()
@@ -252,7 +266,6 @@ def update_frame():
     _, rot = get_frame(i)
     gaussians.rot[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = rot
 
-
 def update_means(head_avatar_index):
     i = head_avatar_index
 
@@ -270,8 +283,6 @@ def update_means(head_avatar_index):
         gaussians.xyz[i*N_GAUSSIANS+k*N_GAUSSIANS_PER_STRAND:i*N_GAUSSIANS+(k+1)*N_GAUSSIANS_PER_STRAND, :] += c
 
     g_head_avatar_means[i] = np.mean(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS], axis=0)
-
-
 
 def get_displacement(head_avatar_index):
     i = head_avatar_index
@@ -292,6 +303,52 @@ def get_frame(head_avatar_index):
     else:
         xyz, rot, _, _, _ = g_head_avatars[i].get_data()
     return xyz[:N_HAIR_GAUSSIANS, :].astype(np.float32), rot[:N_HAIR_GAUSSIANS, :].astype(np.float32)
+
+def cut_hair():
+    # Get hair gaussians of selected head avatar
+    i = g_selected_head_avatar_index
+    hair_gaussians = gaussians.xyz[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :]
+
+    # Get mouse 3D position
+    mouse_pos_2d = imgui.get_io().mouse_pos
+    mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+
+    # Compute ray direction
+    ray_direction = mouse_pos_3d - g_camera.position
+    ray_direction = ray_direction / np.linalg.norm(ray_direction)
+
+    # Compute dot product to project each vector onto the ray
+    ray_projection = (hair_gaussians - g_camera.position) @ ray_direction
+
+    # Compute closest point on the ray for each hair gaussian
+    closest_points_on_ray = g_camera.position + ray_projection[:, np.newaxis] * ray_direction
+
+    # Compute distances between each head avatar mean and its closest point on the ray
+    distances = np.linalg.norm(hair_gaussians - closest_points_on_ray, axis=1)
+
+    # Zero the opacity of the closest hair gaussians
+    g_head_avatars[i].opacity[:N_HAIR_GAUSSIANS, :][distances < g_max_cutting_distance, :] = 0
+    gaussians.opacity[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :][distances < g_max_cutting_distance, :] = 0
+
+    # Make sure there are no flying strands
+    for j in range(N_HAIR_STRANDS):
+        k = np.where(g_head_avatars[i].opacity[j*N_GAUSSIANS_PER_STRAND:(j+1)*N_GAUSSIANS_PER_STRAND, :] == 0)[0]
+        if len(k) > 0:
+            k = k[0]
+            g_head_avatars[i].opacity[j*N_GAUSSIANS_PER_STRAND+k:(j+1)*N_GAUSSIANS_PER_STRAND, :] = 0
+            gaussians.opacity[i*N_GAUSSIANS+j*N_GAUSSIANS_PER_STRAND+k:i*N_GAUSSIANS+(j+1)*N_GAUSSIANS_PER_STRAND, :] = 0
+
+def reset_cut():
+    file_path = f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head ({head_file})\\point_cloud\\iteration_30000\\point_cloud.ply"
+    if file_path:
+        try:
+            # Set opacity from original head avatar
+            _, _, _, opacity, _ = util_gau.load_ply(file_path).get_data()
+            i = g_selected_head_avatar_index
+            g_head_avatars[i].opacity[:N_HAIR_GAUSSIANS, :] = opacity[:N_HAIR_GAUSSIANS, :]
+            update_hair_opacity()
+        except RuntimeError as e:
+                pass
 
 #####################
 
@@ -326,6 +383,8 @@ def cursor_pos_callback(window, xpos, ypos):
     if imgui.get_io().want_capture_mouse:
         g_camera.is_leftmouse_pressed = False
         g_camera.is_rightmouse_pressed = False
+    if g_cutting_mode:
+        g_renderer.update_ray_direction(g_camera, imgui.get_io().mouse_pos)
     g_camera.process_mouse(xpos, ypos)
 
 def mouse_button_callback(window, button, action, mod):
@@ -336,19 +395,33 @@ def mouse_button_callback(window, button, action, mod):
     g_camera.is_rightmouse_pressed = (button == glfw.MOUSE_BUTTON_RIGHT and pressed)
 
     # Mouse Controller Variables
-    global right_click_start_time, CLICK_THRESHOLD
+    global left_click_start_time, right_click_start_time
 
     # Record the time when the left mouse button is pressed
     if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.PRESS:
+        left_click_start_time = time.time()
+
+    # Record the time when the right mouse button is pressed
+    if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.PRESS:
         right_click_start_time = time.time()
 
     # Select closest head avatar
     if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.RELEASE:
         end_time = time.time()
-        duration = end_time - right_click_start_time
+        left_click_duration = end_time - left_click_start_time
         
-        if duration < CLICK_THRESHOLD:
+        if left_click_duration < CLICK_THRESHOLD:
             select_closest_head_avatar()
+            g_renderer.update_selected_head_avatar_index(g_selected_head_avatar_index)
+
+    # Cut
+    if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.RELEASE:
+        end_time = time.time()
+        right_click_duration = end_time - right_click_start_time
+        
+        if right_click_duration < CLICK_THRESHOLD and g_cutting_mode and g_selected_head_avatar_index != -1:
+            cut_hair()
+            g_renderer.update_gaussian_data(gaussians)
 
 def wheel_callback(window, dx, dy):
     g_camera.process_wheel(dx, dy)
@@ -391,9 +464,10 @@ def main():
         g_render_mode, g_render_mode_tables
 
     # Head Avatars Global Variables
-    global gaussians, g_show_head_avatars_win, g_head_avatar_checkboxes, g_empty_gaussian
+    global gaussians, g_show_head_avatars_win, g_head_avatar_checkboxes, g_empty_gaussian, g_cutting_mode, \
+        g_coloring_mode, g_max_cutting_distance, g_z_min, g_z_max, g_z_plane, g_invert_z_plane
 
-    # # Head Avatar Controller Global Variables
+    # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
         g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale, \
         g_wave_frequency, g_wave_amplitude, g_frame
@@ -429,6 +503,15 @@ def main():
     # gaussian data
     update_activated_renderer_state(gaussians)    
 
+    # Set parameters in shader
+    g_renderer.update_N_HAIR_GAUSSIANS(N_HAIR_GAUSSIANS)
+    g_renderer.update_cutting_mode(g_cutting_mode)
+    g_renderer.update_selected_head_avatar_index(g_selected_head_avatar_index)
+    g_renderer.update_max_cutting_distance(g_max_cutting_distance)
+    g_renderer.update_coloring_mode(g_coloring_mode)
+    g_renderer.update_invert_z_plane(g_invert_z_plane)
+    g_renderer.update_z_plane(g_z_plane)
+
     # maximize window
     glfw.maximize_window(window)
     
@@ -443,8 +526,6 @@ def main():
 
         update_camera_pose_lazy()
         update_camera_intrin_lazy()
-        if (g_renderer_idx != 2):
-            g_renderer.update_ray_direction(g_camera, imgui.get_io().mouse_pos)
         
         g_renderer.draw()
 
@@ -629,6 +710,32 @@ def main():
             if g_selected_head_avatar_index != -1:
                 i = g_selected_head_avatar_index
 
+                changed, g_cutting_mode = imgui.checkbox("Cutting Mode", g_cutting_mode)
+                if changed:
+                    g_renderer.update_cutting_mode(g_cutting_mode)
+
+                changed, g_max_cutting_distance = imgui.slider_float("Cutting Area", g_max_cutting_distance, 0.01, 0.5, "%.2f")
+                if changed:
+                    g_renderer.update_max_cutting_distance(g_max_cutting_distance)
+
+                if imgui.button(label="Reset Hair Style"):
+                    reset_cut()
+                    g_renderer.update_gaussian_data(gaussians)
+
+                changed, g_coloring_mode = imgui.checkbox("Coloring Mode", g_coloring_mode)
+                if changed:
+                    g_renderer.update_coloring_mode(g_coloring_mode)
+
+                changed, g_z_plane = imgui.slider_float("Z-Plane", g_z_plane, g_z_min, g_z_max, "z = %.3f")
+                if changed:
+                    g_renderer.update_z_plane(g_z_plane)
+
+                imgui.same_line()
+
+                changed, g_invert_z_plane = imgui.checkbox("Invert Z-Plane", g_invert_z_plane)
+                if changed:
+                    g_renderer.update_invert_z_plane(g_invert_z_plane)
+
                 changed, g_show_hair[i] = imgui.checkbox("Show Hair", g_show_hair[i])
                 if changed:
                     update_hair_opacity()
@@ -643,13 +750,14 @@ def main():
 
                 changed, g_hair_color[i] = imgui.color_edit3("Hair Color", *g_hair_color[i])
                 if changed:
+                    update_hair_color()
                     g_renderer.update_gaussian_data(gaussians)
 
                 imgui.same_line()
 
                 changed, g_show_hair_color[i] = imgui.checkbox("Show Hair Color", g_show_hair_color[i])
-                update_hair_color()
                 if changed:
+                    update_hair_color()
                     g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_head_color[i] = imgui.color_edit3("Head Color", *g_head_color[i])

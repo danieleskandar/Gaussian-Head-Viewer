@@ -111,6 +111,33 @@ class GaussianRenderBase:
 
     def update_camera_intrin(self, camera: util.Camera):
         raise NotImplementedError()
+
+    def update_N_GAUSSIANS(self, N_GAUSSIANS):
+        raise NotImplementedError()
+
+    def update_N_HAIR_GAUSSIANS(self, N_HAIR_GAUSSIANS):
+        raise NotImplementedError()
+
+    def update_cutting_mode(self, cutting_mode):
+        raise NotImplementedError()
+
+    def update_coloring_mode(self, coloring_mode):
+        raise NotImplementedError()
+
+    def update_invert_z_plane(self, invert_z_plane):
+        raise NotImplementedError()
+
+    def update_selected_head_avatar_index(self, selected_head_avatar_index):
+        raise NotImplementedError()
+
+    def update_max_cutting_distance(self, max_cutting_distance):
+        raise NotImplementedError()
+
+    def update_z_plane(self, z_plane):
+        raise NotImplementedError()
+
+    def update_ray_direction(self, camera: util.Camera, mouse_pos_2d):
+        raise NotImplementedError()
     
     def draw(self):
         raise NotImplementedError()
@@ -192,15 +219,35 @@ class OpenGLRenderer(GaussianRenderBase):
         util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
         util.set_uniform_v3(self.program, camera.get_htanfovxy_focal(), "hfovxy_focal")
 
+    def update_N_GAUSSIANS(self, N_GAUSSIANS):
+        util.set_uniform_1int(self.program, N_GAUSSIANS, "N_GAUSSIANS")
+
+    def update_N_HAIR_GAUSSIANS(self, N_HAIR_GAUSSIANS):
+        util.set_uniform_1int(self.program, N_HAIR_GAUSSIANS, "N_HAIR_GAUSSIANS")
+
+    def update_cutting_mode(self, cutting_mode):
+        util.set_uniform_1int(self.program, int(cutting_mode), "cutting_mode")
+
+    def update_coloring_mode(self, coloring_mode):
+        util.set_uniform_1int(self.program, int(coloring_mode), "coloring_mode")
+    
+    def update_invert_z_plane(self, invert_z_plane):
+        util.set_uniform_1int(self.program, int(invert_z_plane), "invert_z_plane")
+
+    def update_selected_head_avatar_index(self, selected_head_avatar_index):
+        util.set_uniform_1int(self.program, selected_head_avatar_index, "selected_head_avatar_index")
+
+    def update_max_cutting_distance(self, max_cutting_distance):
+        util.set_uniform_1f(self.program, max_cutting_distance, "max_cutting_distance")
+
+    def update_z_plane(self, z_plane):
+        util.set_uniform_1f(self.program, z_plane, "z_plane")
+
     def update_ray_direction(self, camera: util.Camera, mouse_pos_2d):
         mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, camera.get_view_matrix(), camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
         ray_direction = mouse_pos_3d-camera.position
         ray_direction = ray_direction/np.linalg.norm(ray_direction)
-        #print(f"mouse 2D: {mouse_pos_2d}")
-        #print(f"mouse 3D: {mouse_pos_3d}")
-        #print(f"camera  : {camera.position}")
         util.set_uniform_v3(self.program, ray_direction, "ray_direction")
-        return
    
     def draw(self):
         gl.glUseProgram(self.program)
@@ -275,6 +322,36 @@ class OpenGLRendererAxes(GaussianRenderBase):
         proj_mat = camera.get_project_matrix()
         util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
         util.set_uniform_v3(self.program, camera.get_htanfovxy_focal(), "hfovxy_focal")
+
+    def update_N_GAUSSIANS(self, N_GAUSSIANS):
+        util.set_uniform_1int(self.program, N_GAUSSIANS, "N_GAUSSIANS")
+
+    def update_N_HAIR_GAUSSIANS(self, N_HAIR_GAUSSIANS):
+        util.set_uniform_1int(self.program, N_HAIR_GAUSSIANS, "N_HAIR_GAUSSIANS")
+
+    def update_cutting_mode(self, cutting_mode):
+        util.set_uniform_1int(self.program, int(cutting_mode), "cutting_mode")
+    
+    def update_coloring_mode(self, coloring_mode):
+        util.set_uniform_1int(self.program, int(coloring_mode), "coloring_mode")
+
+    def update_invert_z_plane(self, invert_z_plane):
+        util.set_uniform_1int(self.program, int(invert_z_plane), "invert_z_plane")
+
+    def update_selected_head_avatar_index(self, selected_head_avatar_index):
+        util.set_uniform_1int(self.program, selected_head_avatar_index, "selected_head_avatar_index")
+
+    def update_max_cutting_distance(self, max_cutting_distance):
+        util.set_uniform_1f(self.program, max_cutting_distance, "max_cutting_distance")
+
+    def update_z_plane(self, z_plane):
+        util.set_uniform_1f(self.program, z_plane, "z_plane")
+
+    def update_ray_direction(self, camera: util.Camera, mouse_pos_2d):
+        mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, camera.get_view_matrix(), camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+        ray_direction = mouse_pos_3d-camera.position
+        ray_direction = ray_direction/np.linalg.norm(ray_direction)
+        util.set_uniform_v3(self.program, ray_direction, "ray_direction")
 
     def draw(self):
         gl.glUseProgram(self.program)
