@@ -9,3 +9,10 @@ _example.py
 text.py
 toy_cuda_gs.py
 .vscode
+*.npy
+*.ipynb
+*ply
+*gif
+cfg*
+*json
+events*
