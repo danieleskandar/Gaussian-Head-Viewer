@@ -48,7 +48,7 @@ CLICK_THRESHOLD = 0.2
 DISPLACEMENT_FACTOR = 1.5
 
 N_GAUSSIANS = 0
-N_HAIR_STRANDS = 150
+N_HAIR_STRANDS = 10
 N_GAUSSIANS_PER_STRAND = 31
 N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
 g_max_cutting_distance = 0.2
@@ -113,7 +113,7 @@ def open_head_avatar_ply():
             g_head_avatars.append(head_avatar)
             g_head_avatar_means.append(np.mean(head_avatar.xyz, axis=0))
             g_head_avatar_checkboxes.append(True)
-            g_hair_points.append(get_hair_points(head_avatar))
+            g_hair_points.append(get_hair_points(head_avatar.xyz, head_avatar.rot, head_avatar.scale))
             g_show_hair.append(True)
             g_show_head.append(True)
             g_hair_color.append([1, 0, 0])
@@ -264,9 +264,9 @@ def update_hair_scale():
 
 def update_frame():
     i = g_selected_head_avatar_index
-    update_means(i)
     _, rot = get_frame(i)
     gaussians.rot[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = rot
+    update_means(i)
 
 def update_means(head_avatar_index):
     i = head_avatar_index
@@ -294,9 +294,8 @@ def get_displacement(head_avatar_index):
     j = np.cumsum(g_head_avatar_checkboxes)[i] - 1
     return np.array([j * DISPLACEMENT_FACTOR, 0, 0]).astype(np.float32)
 
-def get_hair_points(head_avatar):
+def get_hair_points(xyz, rot, scale):
     i = len(g_head_avatars)-1
-    xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
 
     strands = [] # shape is 4000, 32, 3
     for k in range(N_HAIR_STRANDS):
@@ -326,6 +325,8 @@ def get_frame(head_avatar_index):
         xyz = np.load(f"./data/e1c909f7-d/dyns/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
         rot = np.load(f"./data/e1c909f7-d/dyns/frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
         rot = np.array([rotmat2qvec(R) for R in rot])
+        _, _, scale, _, _ = g_head_avatars[i].get_data()
+        g_hair_points[i] = get_hair_points(xyz, rot, scale)
     else:
         xyz, rot, _, _, _ = g_head_avatars[i].get_data()
     return xyz[:N_HAIR_GAUSSIANS, :].astype(np.float32), rot[:N_HAIR_GAUSSIANS, :].astype(np.float32)
