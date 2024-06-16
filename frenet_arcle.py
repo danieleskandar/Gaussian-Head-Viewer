@@ -30,6 +30,10 @@ def calculate_scale(points):
     scales = np.array(scales)
     return scales
 
+def calculate_scale_opt(points):
+    scales = np.linalg.norm(points[:-1]-points[1:], axis=1)
+    return np.block([[scales], [scales/10], [scales/10]]).T
+
 def calculate_tnb_frames(points):
     """Calculates Frenet-Serret (TNB) frames for a discrete curve without smoothing.
 
@@ -87,6 +91,40 @@ def calculate_tnb_frames(points):
 
     return T, N, B
 
+
+def calculate_tnb_frames_opt(points):
+    # Initialize T, N, B arrays
+    T = np.zeros_like(points)
+    N = np.zeros_like(points)
+
+    # Approximate Tangent Vectors
+    T[1:-1] = points[2:]-points[:-2]
+    
+    # Handle start/end points (simple extrapolation)
+    T[0] = points[1] - points[0]
+    T[-1] = points[-1] - points[-2]
+
+    T_norms = np.linalg.norm(T, axis=1)
+    T_norms[T_norms<1e-8] = 1
+    T /= T_norms[:,np.newaxis]
+
+    # Approximate Normal and Binormal Vectors with Fallback
+    N[:-1] = T[1:]-T[:-1]
+    N[-1] = N[-2]
+
+    N_norms = np.linalg.norm(N, axis=1)
+    N_norms[N_norms<1e-8] = 1
+    N /= N_norms[:,np.newaxis]
+    N[1:][N_norms[1:]<1e-8] = N[:-1][N_norms[:-1]<1e-8]
+
+    B = np.cross(T, N)
+    B_norms = np.linalg.norm(B, axis=1)
+    B_norms[B_norms<1e-8] = 1
+    B /= B_norms[:,np.newaxis]
+    B[1:][B_norms[1:]<1e-8] = B[:-1][B_norms[:-1]<1e-8]
+
+    return T, N, B
+
     
 def interpolate_tnb_linear(T, N, B, points):
     num_segments = len(points) - 1
@@ -108,6 +146,46 @@ def interpolate_tnb_linear(T, N, B, points):
     midpoints = np.array(midpoints)
     return interpolated_T, interpolated_N, interpolated_B, midpoints
 
+def interpolate_tnb_linear_opt(T, N, B, points): # shape is 32, 3
+    midpoints = (points[:-1] + points[1:]) / 2
+    interpolated_T = (T[:-1] + T[1:]) / 2
+    interpolated_N = (N[:-1] + N[1:]) / 2
+    interpolated_B = (B[:-1] + B[1:]) / 2
+
+    # Normalize the interpolated vectors
+    interpolated_T /= np.linalg.norm(interpolated_T, axis=1)[:,np.newaxis] + 1e-8
+    interpolated_N /= np.linalg.norm(interpolated_N, axis=1)[:,np.newaxis] + 1e-8
+    interpolated_B /= np.linalg.norm(interpolated_B, axis=1)[:,np.newaxis] + 1e-8
+
+    return interpolated_T, interpolated_N, interpolated_B, midpoints
+
+# strands has shape (#strands, 32, 3). iterates over all strands
+def calculate_frenet_frame_t_npy(hair_strands):
+    groom_scales = []
+    groom_R = []
+    groom_midpoints = []
+    for i, s in enumerate(hair_strands):
+        T, N, B = calculate_tnb_frames_opt(s)
+        scales = calculate_scale_opt(s)
+        
+        # Interpolate TNB and calculate midpoints
+        interpolated_T, interpolated_N, interpolated_B, midpoints = interpolate_tnb_linear_opt(T, N, B, s)
+        R_matrices = []
+        for i in range(len(midpoints)):
+            R = np.column_stack((interpolated_T[i], interpolated_N[i], interpolated_B[i]))
+            R_matrices.append(rotmat2qvec(R))
+
+        R_matrices = np.array(R_matrices)
+
+        groom_R.append(R_matrices)
+        groom_scales.append(scales)
+        groom_midpoints.append(midpoints)
+
+    groom_R = np.array(groom_R)
+    groom_scales = np.array(groom_scales)
+    groom_midpoints = np.array(groom_midpoints)
+
+    return groom_midpoints, groom_R, groom_scales
 
 def calculate_frenet_frame_t(inp_strands, args):
     hair_strand_points = np.load(inp_strands)

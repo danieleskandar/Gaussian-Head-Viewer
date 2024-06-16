@@ -12,6 +12,7 @@ import os
 import sys
 import argparse
 import time
+import frenet_arcle
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 
 # Add the directory containing main.py to the Python path
@@ -27,7 +28,7 @@ BACKEND_OGL=0
 BACKEND_CUDA=1
 BACKEND_OGL_AXES=2
 g_renderer_list = [
-    None, None, None # ogl
+    None, None, None # ogl, cuda, ogl_axes
 ]
 g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
@@ -47,11 +48,10 @@ CLICK_THRESHOLD = 0.2
 DISPLACEMENT_FACTOR = 1.5
 
 N_GAUSSIANS = 0
-N_HAIR_STRANDS = 4000
+N_HAIR_STRANDS = 150
 N_GAUSSIANS_PER_STRAND = 31
 N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
 g_max_cutting_distance = 0.2
-head_file = "large"
 
 ############################
 # Mouse Controller Variables
@@ -84,6 +84,7 @@ g_show_head_avatars_win = True
 g_head_avatar_checkboxes = []
 g_head_avatars = []
 g_head_avatar_means = []
+g_hair_points = []
 g_z_plane = 1
 g_z_max = 1
 g_z_min = -1
@@ -100,7 +101,7 @@ def open_head_avatar_ply():
 
     file_path = filedialog.askopenfilename(
         title="open ply",
-        initialdir=f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head ({head_file})\\point_cloud\\iteration_30000",
+        initialdir = "./data/b4de311f-0/point_cloud/iteration_30000",
         filetypes=[('ply file', '.ply')]
     )
     if file_path:
@@ -112,6 +113,7 @@ def open_head_avatar_ply():
             g_head_avatars.append(head_avatar)
             g_head_avatar_means.append(np.mean(head_avatar.xyz, axis=0))
             g_head_avatar_checkboxes.append(True)
+            g_hair_points.append(get_hair_points(head_avatar))
             g_show_hair.append(True)
             g_show_head.append(True)
             g_hair_color.append([1, 0, 0])
@@ -278,9 +280,12 @@ def update_means(head_avatar_index):
     d = get_displacement(i)
     gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] += d
 
+    points = g_hair_points[i] + d
     c = get_curls(i)
-    for k in range(N_HAIR_STRANDS):
-        gaussians.xyz[i*N_GAUSSIANS+k*N_GAUSSIANS_PER_STRAND:i*N_GAUSSIANS+(k+1)*N_GAUSSIANS_PER_STRAND, :] += c
+    xyz, rot, scale = frenet_arcle.calculate_frenet_frame_t_npy(points+c)
+    gaussians.xyz[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = xyz.reshape(-1,3)
+    gaussians.rot[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = rot.reshape(-1,4)
+    gaussians.scale[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = scale.reshape(-1,3)
 
     g_head_avatar_means[i] = np.mean(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS], axis=0)
 
@@ -289,16 +294,37 @@ def get_displacement(head_avatar_index):
     j = np.cumsum(g_head_avatar_checkboxes)[i] - 1
     return np.array([j * DISPLACEMENT_FACTOR, 0, 0]).astype(np.float32)
 
+def get_hair_points(head_avatar):
+    i = len(g_head_avatars)-1
+    xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
+
+    strands = [] # shape is 4000, 32, 3
+    for k in range(N_HAIR_STRANDS):
+        strand_xyz = xyz[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :]
+        strand_rot = rot[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :]
+        strand_scale = scale[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :]
+
+        r, x, y, z = strand_rot[0]
+        displacement = 0.5*strand_scale[0]*np.array([1. - 2. * (y * y + z * z), 2. * (x * y + r * z), 2. * (x * z - r * y)])
+        points = [strand_xyz[0]-displacement] # shape is 32, 3
+        for j in range(N_GAUSSIANS_PER_STRAND):
+            r, x, y, z = strand_rot[j]
+            displacement = 0.5*strand_scale[j]*np.array([1. - 2. * (y * y + z * z), 2. * (x * y + r * z), 2. * (x * z - r * y)])
+            points.append(strand_xyz[j]+displacement)
+        strands.append(np.array(points))
+
+    return np.array(strands)
+
 def get_curls(head_avatar_index):
     i = head_avatar_index
-    t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND)
-    return g_wave_amplitude[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t)[:, np.newaxis].astype(np.float32)
+    t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND+1)
+    return ((2*t)**2*g_wave_amplitude[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t))[:, np.newaxis].astype(np.float32)
 
 def get_frame(head_avatar_index):
     i = head_avatar_index
     if g_frame[i] > 0:
-        xyz = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-        rot = np.load(f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head (small)\\320_to_320\\frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
+        xyz = np.load(f"./data/e1c909f7-d/dyns/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
+        rot = np.load(f"./data/e1c909f7-d/dyns/frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
         rot = np.array([rotmat2qvec(R) for R in rot])
     else:
         xyz, rot, _, _, _ = g_head_avatars[i].get_data()
@@ -339,7 +365,7 @@ def cut_hair():
             gaussians.opacity[i*N_GAUSSIANS+j*N_GAUSSIANS_PER_STRAND+k:i*N_GAUSSIANS+(j+1)*N_GAUSSIANS_PER_STRAND, :] = 0
 
 def reset_cut():
-    file_path = f"D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models\\head ({head_file})\\point_cloud\\iteration_30000\\point_cloud.ply"
+    file_path = "./data/b4de311f-0/point_cloud/iteration_30000/point_cloud.ply"
     if file_path:
         try:
             # Set opacity from original head avatar
@@ -383,7 +409,7 @@ def cursor_pos_callback(window, xpos, ypos):
     if imgui.get_io().want_capture_mouse:
         g_camera.is_leftmouse_pressed = False
         g_camera.is_rightmouse_pressed = False
-    if g_cutting_mode:
+    if g_cutting_mode or g_render_mode == 0:
         g_renderer.update_ray_direction(g_camera, imgui.get_io().mouse_pos)
     g_camera.process_mouse(xpos, ypos)
 
@@ -565,7 +591,7 @@ def main():
                 imgui.text(f"# of Gaus = {gaussians.xyz.shape[0]}")
                 if imgui.button(label='open ply'):
                     file_path = filedialog.askopenfilename(title="open ply",
-                        initialdir="D:\\Daniel\\Masters\\Term 2\\Practical Machine Learning\\Models",
+                        initialdir="./data",
                         filetypes=[('ply file', '.ply')]
                         )
                     if file_path:

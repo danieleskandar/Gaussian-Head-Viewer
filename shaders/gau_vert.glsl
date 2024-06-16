@@ -171,6 +171,16 @@ void main()
     
     alpha = g_opacity;
 
+	if (render_mod == -5)
+	{
+		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
+		vec3 closest_point = cam_pos + projection * ray_direction;
+		float distance = length(g_pos.xyz - closest_point);
+		distance = distance < 0.2 ? 1 : 0.2;
+		color = vec3(distance, distance, distance);
+		return;
+	}
+
 	if (cutting_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index && boxid < selected_head_avatar_index * N_GAUSSIANS + N_HAIR_GAUSSIANS) {	
 		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
 		vec3 closest_point = cam_pos + projection * ray_direction;
