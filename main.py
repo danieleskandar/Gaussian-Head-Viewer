@@ -52,6 +52,7 @@ N_HAIR_STRANDS = 10
 N_GAUSSIANS_PER_STRAND = 31
 N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
 g_max_cutting_distance = 0.2
+head_file = "small"
 
 ############################
 # Mouse Controller Variables
@@ -101,7 +102,7 @@ def open_head_avatar_ply():
 
     file_path = filedialog.askopenfilename(
         title="open ply",
-        initialdir = "./data/b4de311f-0/point_cloud/iteration_30000",
+        initialdir = f"./models/head ({head_file})/point_cloud/iteration_30000",
         filetypes=[('ply file', '.ply')]
     )
     if file_path:
@@ -322,8 +323,8 @@ def get_curls(head_avatar_index):
 def get_frame(head_avatar_index):
     i = head_avatar_index
     if g_frame[i] > 0:
-        xyz = np.load(f"./data/e1c909f7-d/dyns/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-        rot = np.load(f"./data/e1c909f7-d/dyns/frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
+        xyz = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
+        rot = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
         rot = np.array([rotmat2qvec(R) for R in rot])
         _, _, scale, _, _ = g_head_avatars[i].get_data()
         g_hair_points[i] = get_hair_points(xyz, rot, scale)
@@ -366,7 +367,7 @@ def cut_hair():
             gaussians.opacity[i*N_GAUSSIANS+j*N_GAUSSIANS_PER_STRAND+k:i*N_GAUSSIANS+(j+1)*N_GAUSSIANS_PER_STRAND, :] = 0
 
 def reset_cut():
-    file_path = "./data/b4de311f-0/point_cloud/iteration_30000/point_cloud.ply"
+    file_path = f"./models/head ({head_file})/point_cloud/iteration_30000/point_cloud.ply"
     if file_path:
         try:
             # Set opacity from original head avatar
