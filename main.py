@@ -47,13 +47,15 @@ g_render_mode = 8
 CLICK_THRESHOLD = 0.2
 DISPLACEMENT_FACTOR = 1.5
 
-N_GAUSSIANS = 0
-N_HAIR_STRANDS = 10
-N_GAUSSIANS_PER_STRAND = 31
-N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
 g_max_cutting_distance = 0.2
 g_max_coloring_distance = 0.1
-head_file = "small"
+
+head_file = "small" # colored (noisy) , large, medium, small (dynamics)
+N_HAIR_STRANDS_dict = {"colored":0, "large":4000, "medium":150, "small":10}
+N_HAIR_STRANDS = N_HAIR_STRANDS_dict[head_file]
+N_GAUSSIANS = 0
+N_GAUSSIANS_PER_STRAND = 31
+N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
 
 ############################
 # Mouse Controller Variables
@@ -61,22 +63,6 @@ head_file = "small"
 
 right_click_start_time = None
 left_click_start_time = None
-
-###################
-# Utility Functions
-###################
-def rotmat2qvec(R):
-    Rxx, Ryx, Rzx, Rxy, Ryy, Rzy, Rxz, Ryz, Rzz = R.flat
-    K = np.array([
-        [Rxx - Ryy - Rzz, 0, 0, 0],
-        [Ryx + Rxy, Ryy - Rxx - Rzz, 0, 0],
-        [Rzx + Rxz, Rzy + Ryz, Rzz - Rxx - Ryy, 0],
-        [Ryz - Rzy, Rzx - Rxz, Rxy - Ryx, Rxx + Ryy + Rzz]]) / 3.0
-    eigvals, eigvecs = np.linalg.eigh(K)
-    qvec = eigvecs[[3, 0, 1, 2], np.argmax(eigvals)]
-    if qvec[0] < 0:
-        qvec *= -1
-    return qvec
 
 ########################
 # Head Avatars Variables
@@ -87,6 +73,7 @@ g_head_avatar_checkboxes = []
 g_head_avatars = []
 g_head_avatar_means = []
 g_hair_points = []
+g_hair_normals = []
 g_z_plane = 1
 g_z_max = 1
 g_z_min = -1
@@ -116,7 +103,9 @@ def open_head_avatar_ply():
             g_head_avatars.append(head_avatar)
             g_head_avatar_means.append(np.mean(head_avatar.xyz, axis=0))
             g_head_avatar_checkboxes.append(True)
-            g_hair_points.append(get_hair_points(head_avatar.xyz, head_avatar.rot, head_avatar.scale))
+            hair_points, hair_normals = get_hair_points(head_avatar.xyz, head_avatar.rot, head_avatar.scale)
+            g_hair_points.append(hair_points)
+            g_hair_normals.append(hair_normals)
             g_show_hair.append(True)
             g_show_head.append(True)
             g_hair_color.append([1, 0, 0])
@@ -283,12 +272,21 @@ def update_means(head_avatar_index):
     d = get_displacement(i)
     gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] += d
 
-    points = g_hair_points[i] + d
-    c = get_curls(i)
-    xyz, rot, scale = frenet_arcle.calculate_frenet_frame_t_npy(points+c)
-    gaussians.xyz[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = xyz.reshape(-1,3)
-    gaussians.rot[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = rot.reshape(-1,4)
-    gaussians.scale[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = scale.reshape(-1,3)
+    # Handling case for which there are no hair strands. Able to open a generic gaussian ply
+    if g_hair_points[i].shape[0] != 0:
+        points = g_hair_points[i] + d
+        c = get_curls(i)
+
+        # The curls are applied along the two vectors that form the plane perpendicular to the hair
+        global_nudging = np.zeros((N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND+1, 3))
+        hair_normals = g_hair_normals[i]
+        global_nudging[:,1:,:] = c[:,1:,0:1]*hair_normals[0] + c[:,1:,1:2]*hair_normals[1]
+
+        # New gaussians from new points. Original implementation is faulty: sometimes gaussians are not connected
+        xyz, rot, scale = frenet_arcle.calculate_frenet_frame_t_opt(points+global_nudging)
+        gaussians.xyz[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = xyz.reshape(-1,3)
+        gaussians.rot[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = rot.reshape(-1,4)
+        gaussians.scale[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = scale.reshape(-1,3)
 
     g_head_avatar_means[i] = np.mean(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS], axis=0)
 
@@ -298,38 +296,56 @@ def get_displacement(head_avatar_index):
     return np.array([j * DISPLACEMENT_FACTOR, 0, 0]).astype(np.float32)
 
 def get_hair_points(xyz, rot, scale):
-    i = len(g_head_avatars)-1
+    strands = np.zeros((N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND+1, 3))
+    strands_xyz = xyz[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+    strands_rot = rot[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+    strands_rot[strands_rot[:, :, 0] < 0] *= -1
+    strands_scale = scale[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
 
-    strands = [] # shape is 4000, 32, 3
-    for k in range(N_HAIR_STRANDS):
-        strand_xyz = xyz[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :]
-        strand_rot = rot[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :]
-        strand_scale = scale[k*N_GAUSSIANS_PER_STRAND:(k+1)*N_GAUSSIANS_PER_STRAND, :]
+    r, x, y, z = strands_rot[:,:,0], strands_rot[:,:,1], strands_rot[:,:,2], strands_rot[:,:,3]
+    global_x_displacement = np.array([1. - 2. * (y * y + z * z), 2. * (x * y + r * z), 2. * (x * z - r * y)]).transpose(1,2,0)
+    global_y_displacement = np.array([2 * (x * y + r * z), 1 - 2 * (x * x + z * z), 2 * (y * z - r * x)]).transpose(1,2,0)
+    global_z_displacement = np.array([2 * (x * z - r * y), 2 * (y * z + r * x), 1 - 2 * (x * x + y * y)]).transpose(1,2,0)
+    
+    displacements = 0.5*strands_scale*global_x_displacement 
+    strands[:,0] = strands_xyz[:,0] - displacements[:,0]
+    strands[:,1:] = strands_xyz + displacements
 
-        r, x, y, z = strand_rot[0]
-        displacement = 0.5*strand_scale[0]*np.array([1. - 2. * (y * y + z * z), 2. * (x * y + r * z), 2. * (x * z - r * y)])
-        points = [strand_xyz[0]-displacement] # shape is 32, 3
-        for j in range(N_GAUSSIANS_PER_STRAND):
-            r, x, y, z = strand_rot[j]
-            displacement = 0.5*strand_scale[j]*np.array([1. - 2. * (y * y + z * z), 2. * (x * y + r * z), 2. * (x * z - r * y)])
-            points.append(strand_xyz[j]+displacement)
-        strands.append(np.array(points))
-
-    return np.array(strands)
+    # Orthogonal vectors which lie on the plane perpendicular to hair
+    disps = np.vstack((global_y_displacement[np.newaxis], global_z_displacement[np.newaxis]))
+    disps /= np.linalg.norm(disps, axis=2)[:,:,np.newaxis]
+    return strands, disps
 
 def get_curls(head_avatar_index):
     i = head_avatar_index
-    t = np.linspace(0, 1, N_GAUSSIANS_PER_STRAND+1)
-    return ((2*t)**2*g_wave_amplitude[i] * np.sin(2 * np.pi * g_wave_frequency[i] * t))[:, np.newaxis].astype(np.float32)
+    t = np.linspace(0, 2, N_GAUSSIANS_PER_STRAND+1)[:,np.newaxis].T
+    
+    # Fixing random seed for future random initial frequency and overall noise
+    np.random.seed(0)
+    random_init_freq = np.random.uniform(low=0, high=2*np.pi, size=(N_HAIR_STRANDS,1))
+    # Parameter t with random initial values so it doesn't look too uniform
+    t_strands = t+random_init_freq
+
+    # Quadratic so hair roots are not displaced
+    amplitude = (t**2*g_wave_amplitude[i])[:,:,np.newaxis]
+    # Sine and cosine to get coil shaped curls and not one-dimensional
+    sin_wave = np.sin(np.pi * g_wave_frequency[i] * t + t_strands)
+    cos_wave = np.cos(np.pi * g_wave_frequency[i] * t + t_strands)
+    curls = amplitude*np.dstack((sin_wave, cos_wave)) 
+
+    noise = 0 if g_wave_amplitude[i]==0 else np.random.normal(0, abs(np.median(curls)), size=curls.shape)
+    return (curls+noise).astype(np.float32)
 
 def get_frame(head_avatar_index):
     i = head_avatar_index
     if g_frame[i] > 0:
         xyz = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-        rot = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_rot_frenet.npy").reshape(-1, 3, 3)
-        rot = np.array([rotmat2qvec(R) for R in rot])
+        rot = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_rot_frenet.npy")
+        rot = frenet_arcle.rotmats2qvecs(rot).reshape(-1,4)
         _, _, scale, _, _ = g_head_avatars[i].get_data()
-        g_hair_points[i] = get_hair_points(xyz, rot, scale)
+        hair_points, hair_normals = get_hair_points(xyz, rot, scale)
+        g_hair_points[i] = hair_points
+        g_hair_normals[i] = hair_normals
     else:
         xyz, rot, _, _, _ = g_head_avatars[i].get_data()
     return xyz[:N_HAIR_GAUSSIANS, :].astype(np.float32), rot[:N_HAIR_GAUSSIANS, :].astype(np.float32)
@@ -548,7 +564,8 @@ def main():
 
     # Head Avatars Global Variables
     global gaussians, g_show_head_avatars_win, g_head_avatar_checkboxes, g_empty_gaussian, g_cutting_mode, \
-        g_coloring_mode, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_z_min, g_z_max, g_z_plane, g_invert_z_plane
+        g_coloring_mode, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, \
+        g_hair_points, g_hair_normals
 
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
