@@ -190,11 +190,11 @@ void main()
 		alpha = distance < max_cutting_distance ? 0 : alpha;
 	}
 
-	if (coloring_mode == 1 && invert_z_plane == 0 && g_pos.z >= z_plane ) {
+	if (coloring_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index && invert_z_plane == 0 && g_pos.z >= z_plane ) {
 		alpha = 0;
 	}
 
-	if (coloring_mode == 1 && invert_z_plane == 1 && g_pos.z <= z_plane ) {
+	if (coloring_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index && invert_z_plane == 1 && g_pos.z <= z_plane ) {
 		alpha = 0;
 	}
 
@@ -212,6 +212,13 @@ void main()
 	vec3 dir = g_pos.xyz - cam_pos;
     dir = normalize(dir);
 	color = SH_C0 * get_vec3(sh_start);
+
+	if (coloring_mode == 1 && alpha != 0 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index) {
+		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
+		vec3 closest_point = cam_pos + projection * ray_direction;
+		float distance = length(g_pos.xyz - closest_point);
+		color = distance < max_coloring_distance ? SH_C0 * selected_color : color;
+	}
 	
 	if (sh_dim > 3 && render_mod >= 1)  // 1 * 3
 	{
@@ -245,12 +252,6 @@ void main()
 		}
 	}
 
-	if (coloring_mode == 1 && alpha != 0 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index) {
-		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
-		vec3 closest_point = cam_pos + projection * ray_direction;
-		float distance = length(g_pos.xyz - closest_point);
-		color = distance < max_coloring_distance ? selected_color : color;
-	}
-
+	
 	color += 0.5f;
 }

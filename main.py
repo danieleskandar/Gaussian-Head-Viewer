@@ -74,20 +74,22 @@ g_head_avatars = []
 g_head_avatar_means = []
 g_hair_points = []
 g_hair_normals = []
-g_z_plane = 1
 g_z_max = 1
 g_z_min = -1
 g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)))
 g_cutting_mode = False
 g_coloring_mode = False
 g_selected_color = [0.4, 0.2, 0]
-g_invert_z_plane = False
+g_z_plane = []
+g_z_plane_max = []
+g_z_plane_min = []
+g_invert_z_plane = []
 
 ######################
 # Head Avatars Actions
 ######################
 def open_head_avatar_ply():
-    global gaussians, N_GAUSSIANS, g_z_min, g_z_max, g_z_plane
+    global gaussians, N_GAUSSIANS, g_z_min, g_z_max
 
     file_path = filedialog.askopenfilename(
         title="open ply",
@@ -116,12 +118,13 @@ def open_head_avatar_ply():
             g_wave_frequency.append(0)
             g_wave_amplitude.append(0)
             g_frame.append(0)
+            g_z_plane.append(np.max(head_avatar.xyz[:, 2]))
+            g_z_plane_max.append(np.max(head_avatar.xyz[:, 2]))
+            g_z_plane_min.append(np.min(head_avatar.xyz[:, 2]))
+            g_invert_z_plane.append(False)
             
             if len(g_head_avatars) == 1:
-                # Initialize global variables
-                g_z_min = np.min(head_avatar.xyz[:, 2])
-                g_z_max = np.max(head_avatar.xyz[:, 2])                
-                g_z_plane = g_z_max
+                # Initialize global variables               
                 N_GAUSSIANS = head_avatar.xyz.shape[0]
                 g_renderer.update_N_GAUSSIANS(N_GAUSSIANS)
 
@@ -401,14 +404,20 @@ def color_hair():
     i = g_selected_head_avatar_index
     xyz = gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
     color = gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
+    opacity = gaussians.opacity[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
+
+    # Filter rows according to opacity
+    opacity_mask = (opacity != 0).flatten()
+    xyz = xyz[opacity_mask, :]
+    color = color[opacity_mask, :]
 
     # Filter rows according to z-plane
-    if g_invert_z_plane:
-        z_mask = (xyz[:, 2] >= g_z_plane).flatten()
+    if g_invert_z_plane[i]:
+        z_mask = (xyz[:, 2] >= g_z_plane[i]).flatten()
     else:
-        z_mask = (xyz[:, 2] <= g_z_plane).flatten()
-    xyz = xyz[z_mask]
-    color = color[z_mask]
+        z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten()    
+    xyz = xyz[z_mask, :]
+    color = color[z_mask, :]
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
@@ -426,12 +435,14 @@ def color_hair():
 
     # Compute distances between each head avatar mean and its closest point on the ray
     distances = np.linalg.norm(xyz - closest_points_on_ray, axis=1)
+    distance_mask = distances < g_max_coloring_distance
+
+    # Compute final indices
+    final_indices = np.where(opacity_mask)[0][np.where(z_mask)[0][np.where(distance_mask)[0]]]
 
     # Color the closest hair gaussians
-    distance_mask = np.where(distances < g_max_coloring_distance)[0]
-    original_indices = np.where(z_mask)[0][distance_mask]
-    g_head_avatars[i].sh[original_indices, 0:3] = g_selected_color
-    gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :][original_indices, 0:3] = g_selected_color
+    g_head_avatars[i].sh[final_indices, 0:3] = g_selected_color
+    gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :][final_indices, 0:3] = g_selected_color
 
 def reset_coloring():
     file_path = f"./models/head ({head_file})/point_cloud/iteration_30000/point_cloud.ply"
@@ -508,6 +519,8 @@ def mouse_button_callback(window, button, action, mod):
         if left_click_duration < CLICK_THRESHOLD:
             select_closest_head_avatar()
             g_renderer.update_selected_head_avatar_index(g_selected_head_avatar_index)
+            g_renderer.update_z_plane(g_z_plane[g_selected_head_avatar_index])
+            g_renderer.update_invert_z_plane(g_invert_z_plane[g_selected_head_avatar_index])
 
     # Cut
     if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.RELEASE:
@@ -611,8 +624,6 @@ def main():
     g_renderer.update_max_coloring_distance(g_max_coloring_distance)
     g_renderer.update_coloring_mode(g_coloring_mode)
     g_renderer.update_selected_color(g_selected_color)
-    g_renderer.update_invert_z_plane(g_invert_z_plane)
-    g_renderer.update_z_plane(g_z_plane)
 
     # maximize window
     glfw.maximize_window(window)
@@ -840,15 +851,15 @@ def main():
                 if changed:
                     g_renderer.update_max_coloring_distance(g_max_coloring_distance)                  
 
-                changed, g_z_plane = imgui.slider_float("Z-Plane", g_z_plane, g_z_min, g_z_max, "z = %.3f")
+                changed, g_z_plane[g_selected_head_avatar_index] = imgui.slider_float("Z-Plane", g_z_plane[g_selected_head_avatar_index], g_z_plane_min[g_selected_head_avatar_index], g_z_plane_max[g_selected_head_avatar_index], "z = %.3f")
                 if changed:
-                    g_renderer.update_z_plane(g_z_plane)
+                    g_renderer.update_z_plane(g_z_plane[g_selected_head_avatar_index])
 
                 imgui.same_line()
 
-                changed, g_invert_z_plane = imgui.checkbox("Invert Z-Plane", g_invert_z_plane)
+                changed, g_invert_z_plane[g_selected_head_avatar_index] = imgui.checkbox("Invert Z-Plane", g_invert_z_plane[g_selected_head_avatar_index])
                 if changed:
-                    g_renderer.update_invert_z_plane(g_invert_z_plane)
+                    g_renderer.update_invert_z_plane(g_invert_z_plane[g_selected_head_avatar_index])
 
                 if imgui.button(label="Reset Colors"):
                     reset_coloring()
