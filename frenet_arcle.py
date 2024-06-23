@@ -20,6 +20,40 @@ def rotmat2qvec(R):
         qvec *= -1
     return qvec
 
+def rotmats2qvecs(R):
+    Rxx, Ryx, Rzx = R[:, :, 0, 0], R[:, :, 1, 0], R[:, :, 2, 0]
+    Rxy, Ryy, Rzy = R[:, :, 0, 1], R[:, :, 1, 1], R[:, :, 2, 1]
+    Rxz, Ryz, Rzz = R[:, :, 0, 2], R[:, :, 1, 2], R[:, :, 2, 2]
+    
+    # Construct the K matrices for all matrices
+    K = np.empty((R.shape[0], R.shape[1], 4, 4))
+    K[:, :, 0, 0] = Rxx - Ryy - Rzz
+    K[:, :, 0, 1] = 0
+    K[:, :, 0, 2] = 0
+    K[:, :, 0, 3] = 0
+    
+    K[:, :, 1, 0] = Ryx + Rxy
+    K[:, :, 1, 1] = Ryy - Rxx - Rzz
+    K[:, :, 1, 2] = 0
+    K[:, :, 1, 3] = 0
+    
+    K[:, :, 2, 0] = Rzx + Rxz
+    K[:, :, 2, 1] = Rzy + Ryz
+    K[:, :, 2, 2] = Rzz - Rxx - Ryy
+    K[:, :, 2, 3] = 0
+    
+    K[:, :, 3, 0] = Ryz - Rzy
+    K[:, :, 3, 1] = Rzx - Rxz
+    K[:, :, 3, 2] = Rxy - Ryx
+    K[:, :, 3, 3] = Rxx + Ryy + Rzz
+    
+    K /= 3.0
+    
+    _, eigvecs = np.linalg.eigh(K)    
+    qvecs = eigvecs[:, :, [3, 0, 1, 2], -1]
+    qvecs[qvecs[:, :, 0] < 0] *= -1
+    return qvecs
+
 def calculate_scale(points):
     num_segments = len(points) - 1
     scales = []
@@ -29,10 +63,6 @@ def calculate_scale(points):
 
     scales = np.array(scales)
     return scales
-
-def calculate_scale_opt(points):
-    scales = np.linalg.norm(points[:-1]-points[1:], axis=1)
-    return np.block([[scales], [scales/10], [scales/10]]).T
 
 def calculate_tnb_frames(points):
     """Calculates Frenet-Serret (TNB) frames for a discrete curve without smoothing.
@@ -90,41 +120,6 @@ def calculate_tnb_frames(points):
             B[i] /= np.linalg.norm(B[i])
 
     return T, N, B
-
-
-def calculate_tnb_frames_opt(points):
-    # Initialize T, N, B arrays
-    T = np.zeros_like(points)
-    N = np.zeros_like(points)
-
-    # Approximate Tangent Vectors
-    T[1:-1] = points[2:]-points[:-2]
-    
-    # Handle start/end points (simple extrapolation)
-    T[0] = points[1] - points[0]
-    T[-1] = points[-1] - points[-2]
-
-    T_norms = np.linalg.norm(T, axis=1)
-    T_norms[T_norms<1e-8] = 1
-    T /= T_norms[:,np.newaxis]
-
-    # Approximate Normal and Binormal Vectors with Fallback
-    N[:-1] = T[1:]-T[:-1]
-    N[-1] = N[-2]
-
-    N_norms = np.linalg.norm(N, axis=1)
-    N_norms[N_norms<1e-8] = 1
-    N /= N_norms[:,np.newaxis]
-    N[1:][N_norms[1:]<1e-8] = N[:-1][N_norms[:-1]<1e-8]
-
-    B = np.cross(T, N)
-    B_norms = np.linalg.norm(B, axis=1)
-    B_norms[B_norms<1e-8] = 1
-    B /= B_norms[:,np.newaxis]
-    B[1:][B_norms[1:]<1e-8] = B[:-1][B_norms[:-1]<1e-8]
-
-    return T, N, B
-
     
 def interpolate_tnb_linear(T, N, B, points):
     num_segments = len(points) - 1
@@ -146,30 +141,67 @@ def interpolate_tnb_linear(T, N, B, points):
     midpoints = np.array(midpoints)
     return interpolated_T, interpolated_N, interpolated_B, midpoints
 
-def interpolate_tnb_linear_opt(T, N, B, points): # shape is 32, 3
-    midpoints = (points[:-1] + points[1:]) / 2
-    interpolated_T = (T[:-1] + T[1:]) / 2
-    interpolated_N = (N[:-1] + N[1:]) / 2
-    interpolated_B = (B[:-1] + B[1:]) / 2
+# Normalizes the tangent vectors and if too small fallback
+def normalize_or_fallback(vector):
+    norms = np.linalg.norm(vector, axis=2)
+    norms[norms<1e-8] = 1
+    vector /= norms[:,:,np.newaxis]
+    # Fallback to previous tangent
+    vector[:,1:,:][norms[:,1:]<1e-8] = vector[:,:-1,:][norms[:,:-1]<1e-8]
+    return vector
 
-    # Normalize the interpolated vectors
-    interpolated_T /= np.linalg.norm(interpolated_T, axis=1)[:,np.newaxis] + 1e-8
-    interpolated_N /= np.linalg.norm(interpolated_N, axis=1)[:,np.newaxis] + 1e-8
-    interpolated_B /= np.linalg.norm(interpolated_B, axis=1)[:,np.newaxis] + 1e-8
-
-    return interpolated_T, interpolated_N, interpolated_B, midpoints
+def interpolate_and_normalize(vector):
+    interpolated_vector = (vector[:,:-1,:] + vector[:,1:,:]) / 2
+    return normalize_or_fallback(interpolated_vector)
 
 # strands has shape (#strands, 32, 3). iterates over all strands
-def calculate_frenet_frame_t_npy(hair_strands):
+def calculate_frenet_frame_t_opt(hair_strands):
+
+    T = np.zeros_like(hair_strands)
+    # Approximate Tangent Vectors
+    T[:,1:-1,:] = hair_strands[:,2:,:]-hair_strands[:,:-2,:]
+
+    # Handle start/end points (simple extrapolation)
+    T[:,0,:] = hair_strands[:,1,:] - hair_strands[:,0,:]
+    T[:,-1,:] = hair_strands[:,-1,:] - hair_strands[:,-2,:]
+    # Normalize the tangent vectors and if too small fallback
+    T = normalize_or_fallback(T)
+
+    # Approximate Normal and Binormal Vectors with Fallback
+    N = np.zeros_like(hair_strands)
+    N[:,:-1,:] = T[:,1:,:]-T[:,:-1,:]
+    N[:,-1,:] = N[:,-2,:]
+    # Normalize the normal vectors and if too small fallback
+    N = normalize_or_fallback(N)
+
+    B = np.cross(T, N)
+    B = normalize_or_fallback(B)
+
+    # Interpolate and normalize
+    interpolated_T = interpolate_and_normalize(T)
+    interpolated_N = interpolate_and_normalize(N)
+    interpolated_B = interpolate_and_normalize(B)
+
+    R = np.stack((interpolated_T, interpolated_N, interpolated_B), axis=-1).transpose((0, 1, 3, 2))
+    qvecs = rotmats2qvecs(R)
+    
+    midpoints = (hair_strands[:,:-1,:] + hair_strands[:,1:,:]) / 2
+
+    x_scales = np.linalg.norm(hair_strands[:,:-1,:]-hair_strands[:,1:,:], axis=2)
+    scales = np.dstack([x_scales, x_scales/10, x_scales/10])
+
+    return midpoints, qvecs, scales
+
+def calculate_frenet_frame_t_non(hair_strands):
     groom_scales = []
     groom_R = []
     groom_midpoints = []
     for i, s in enumerate(hair_strands):
-        T, N, B = calculate_tnb_frames_opt(s)
-        scales = calculate_scale_opt(s)
+        T, N, B = calculate_tnb_frames(s)
+        scales = calculate_scale(s)
         
         # Interpolate TNB and calculate midpoints
-        interpolated_T, interpolated_N, interpolated_B, midpoints = interpolate_tnb_linear_opt(T, N, B, s)
+        interpolated_T, interpolated_N, interpolated_B, midpoints = interpolate_tnb_linear(T, N, B, s)
         R_matrices = []
         for i in range(len(midpoints)):
             R = np.column_stack((interpolated_T[i], interpolated_N[i], interpolated_B[i]))
