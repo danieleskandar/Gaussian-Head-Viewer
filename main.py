@@ -51,7 +51,7 @@ g_selection_distance = 0.02
 g_max_cutting_distance = 0.2
 g_max_coloring_distance = 0.1
 
-head_file = "small" # colored (noisy) , large, medium, small (dynamics)
+head_file = "large" # colored (noisy) , large, medium, small (dynamics)
 N_HAIR_STRANDS_dict = {"colored":0, "large":4000, "medium":150, "small":10}
 N_HAIR_STRANDS = N_HAIR_STRANDS_dict[head_file]
 N_GAUSSIANS = 0
@@ -293,7 +293,7 @@ def select_closest_gaussian():
         return None, [-2, -2, -2]
 
     # Index closest point
-    closest_point_relative_index = np.argmin(np.linalg.norm(xyz - g_camera.position))
+    closest_point_relative_index = np.argmin(np.linalg.norm(xyz - g_camera.position, axis=1))
     closest_point_index = np.where(np.all(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] == xyz[closest_point_relative_index], axis=1))[0][0]
 
     return closest_point_index, color[closest_point_relative_index, 0:3]
@@ -628,6 +628,9 @@ def mouse_button_callback(window, button, action, mod):
                 if closest_point_index < N_HAIR_GAUSSIANS:
                     g_strand_index = closest_point_index // N_GAUSSIANS_PER_STRAND
                     g_gaussian_strand_index = closest_point_index % N_GAUSSIANS_PER_STRAND
+                else:
+                    g_strand_index = "None"
+                    g_gaussian_strand_index = "None"
             if g_coloring_mode:
                 g_selected_color = selected_color
                 g_renderer.update_selected_color(g_selected_color)
