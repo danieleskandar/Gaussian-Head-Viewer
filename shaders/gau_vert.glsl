@@ -59,6 +59,10 @@ uniform float max_cutting_distance;
 uniform int coloring_mode;
 uniform float max_coloring_distance;
 uniform vec3 selected_color;
+uniform int invert_x_plane;
+uniform float x_plane;
+uniform int invert_y_plane;
+uniform float y_plane;
 uniform int invert_z_plane;
 uniform float z_plane;
 uniform int selected_head_avatar_index;
@@ -190,12 +194,13 @@ void main()
 		alpha = distance < max_cutting_distance ? 0 : alpha;
 	}
 
-	if (coloring_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index && invert_z_plane == 0 && g_pos.z >= z_plane ) {
-		alpha = 0;
-	}
-
-	if (coloring_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index && invert_z_plane == 1 && g_pos.z <= z_plane ) {
-		alpha = 0;
+	if (coloring_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index) {
+		if (invert_x_plane == 0 && g_pos.x >= x_plane) alpha = 0;
+		if (invert_x_plane == 1 && g_pos.x <= x_plane) alpha = 0;
+		if (invert_y_plane == 0 && g_pos.y >= y_plane) alpha = 0;
+		if (invert_y_plane == 1 && g_pos.y <= y_plane) alpha = 0;
+		if (invert_z_plane == 0 && g_pos.z >= z_plane) alpha = 0;
+		if (invert_z_plane == 1 && g_pos.z <= z_plane) alpha = 0;
 	}
 
 	if (render_mod == -1)

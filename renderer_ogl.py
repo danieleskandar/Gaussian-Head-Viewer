@@ -130,6 +130,12 @@ class GaussianRenderBase:
     def update_max_coloring_distance(self, max_coloring_distance):
         raise NotImplementedError()
 
+    def update_invert_x_plane(self, invert_x_plane):
+        raise NotImplementedError()
+
+    def update_invert_y_plane(self, invert_y_plane):
+        raise NotImplementedError()
+
     def update_invert_z_plane(self, invert_z_plane):
         raise NotImplementedError()
 
@@ -137,6 +143,12 @@ class GaussianRenderBase:
         raise NotImplementedError()
 
     def update_max_cutting_distance(self, max_cutting_distance):
+        raise NotImplementedError()
+
+    def update_x_plane(self, x_plane):
+        raise NotImplementedError()
+
+    def update_y_plane(self, y_plane):
         raise NotImplementedError()
 
     def update_z_plane(self, z_plane):
@@ -242,6 +254,12 @@ class OpenGLRenderer(GaussianRenderBase):
 
     def update_max_coloring_distance(self, max_coloring_distance):
         util.set_uniform_1f(self.program, max_coloring_distance, "max_coloring_distance")
+
+    def update_invert_x_plane(self, invert_x_plane):
+        util.set_uniform_1int(self.program, int(invert_x_plane), "invert_x_plane")
+
+    def update_invert_y_plane(self, invert_y_plane):
+        util.set_uniform_1int(self.program, int(invert_y_plane), "invert_y_plane")
     
     def update_invert_z_plane(self, invert_z_plane):
         util.set_uniform_1int(self.program, int(invert_z_plane), "invert_z_plane")
@@ -251,6 +269,12 @@ class OpenGLRenderer(GaussianRenderBase):
 
     def update_max_cutting_distance(self, max_cutting_distance):
         util.set_uniform_1f(self.program, max_cutting_distance, "max_cutting_distance")
+
+    def update_x_plane(self, x_plane):
+        util.set_uniform_1f(self.program, x_plane, "x_plane")
+
+    def update_y_plane(self, y_plane):
+        util.set_uniform_1f(self.program, y_plane, "y_plane")
 
     def update_z_plane(self, z_plane):
         util.set_uniform_1f(self.program, z_plane, "z_plane")
@@ -353,6 +377,12 @@ class OpenGLRendererAxes(GaussianRenderBase):
     def update_max_coloring_distance(self, max_coloring_distance):
         util.set_uniform_1f(self.program, max_coloring_distance, "max_coloring_distance")
 
+    def update_invert_x_plane(self, invert_x_plane):
+        util.set_uniform_1int(self.program, int(invert_x_plane), "invert_x_plane")
+
+    def update_invert_y_plane(self, invert_y_plane):
+        util.set_uniform_1int(self.program, int(invert_y_plane), "invert_y_plane")
+
     def update_invert_z_plane(self, invert_z_plane):
         util.set_uniform_1int(self.program, int(invert_z_plane), "invert_z_plane")
 
@@ -361,6 +391,12 @@ class OpenGLRendererAxes(GaussianRenderBase):
 
     def update_max_cutting_distance(self, max_cutting_distance):
         util.set_uniform_1f(self.program, max_cutting_distance, "max_cutting_distance")
+
+    def update_x_plane(self, x_plane):
+        util.set_uniform_1f(self.program, x_plane, "x_plane")
+
+    def update_y_plane(self, y_plane):
+        util.set_uniform_1f(self.program, y_plane, "y_plane")
 
     def update_z_plane(self, z_plane):
         util.set_uniform_1f(self.program, z_plane, "z_plane")

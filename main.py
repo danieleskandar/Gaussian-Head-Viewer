@@ -47,6 +47,7 @@ g_render_mode = 8
 CLICK_THRESHOLD = 0.2
 DISPLACEMENT_FACTOR = 1.5
 
+g_selection_distance = 0.02
 g_max_cutting_distance = 0.2
 g_max_coloring_distance = 0.1
 
@@ -79,11 +80,23 @@ g_z_min = -1
 g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)))
 g_cutting_mode = False
 g_coloring_mode = False
-g_selected_color = [0.4, 0.2, 0]
+g_selected_color = [0.5, 0.5, 0.5]
+g_x_plane = []
+g_x_plane_max = []
+g_x_plane_min = []
+g_invert_x_plane = []
+g_y_plane = []
+g_y_plane_max = []
+g_y_plane_min = []
+g_invert_y_plane = []
 g_z_plane = []
 g_z_plane_max = []
 g_z_plane_min = []
 g_invert_z_plane = []
+
+g_strand_index = "None"
+g_gaussian_index = "None"
+g_gaussian_strand_index = "None"
 
 ######################
 # Head Avatars Actions
@@ -118,6 +131,14 @@ def open_head_avatar_ply():
             g_wave_frequency.append(0)
             g_wave_amplitude.append(0)
             g_frame.append(0)
+            g_x_plane.append(np.max(head_avatar.xyz[:, 0]))
+            g_x_plane_max.append(np.max(head_avatar.xyz[:, 0]))
+            g_x_plane_min.append(np.min(head_avatar.xyz[:, 0]))
+            g_invert_x_plane.append(False)
+            g_y_plane.append(np.max(head_avatar.xyz[:, 1]))
+            g_y_plane_max.append(np.max(head_avatar.xyz[:, 1]))
+            g_y_plane_min.append(np.min(head_avatar.xyz[:, 1]))
+            g_invert_y_plane.append(False)
             g_z_plane.append(np.max(head_avatar.xyz[:, 2]))
             g_z_plane_max.append(np.max(head_avatar.xyz[:, 2]))
             g_z_plane_min.append(np.min(head_avatar.xyz[:, 2]))
@@ -207,6 +228,75 @@ def select_closest_head_avatar():
     # Get index and name of the selected head avatar
     g_selected_head_avatar_index = np.where(np.cumsum(g_head_avatar_checkboxes) - 1 == closest_point_index)[0][0]
     g_selected_head_avatar_name = "Head Avatar " + str(g_selected_head_avatar_index + 1)
+
+def update_selection_and_planes():
+    g_renderer.update_selected_head_avatar_index(g_selected_head_avatar_index)
+    if g_selected_head_avatar_index > -1:
+        j = np.cumsum(g_head_avatar_checkboxes)[g_selected_head_avatar_index] - 1
+        g_renderer.update_x_plane(g_x_plane[g_selected_head_avatar_index] + (np.cumsum(g_head_avatar_checkboxes)[g_selected_head_avatar_index] - 1) * DISPLACEMENT_FACTOR)
+        g_renderer.update_y_plane(g_y_plane[g_selected_head_avatar_index])
+        g_renderer.update_z_plane(g_z_plane[g_selected_head_avatar_index])
+        g_renderer.update_invert_x_plane(g_invert_x_plane[g_selected_head_avatar_index])
+        g_renderer.update_invert_y_plane(g_invert_y_plane[g_selected_head_avatar_index])
+        g_renderer.update_invert_z_plane(g_invert_z_plane[g_selected_head_avatar_index])
+
+def select_closest_gaussian():
+    # Get means, colors, and opacities of selected head avatar
+    i = g_selected_head_avatar_index
+    xyz = gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
+    color = gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
+    opacity = gaussians.opacity[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
+
+    # Filter rows according to opacity
+    opacity_mask = (opacity != 0).flatten()
+    xyz = xyz[opacity_mask, :]
+    color = color[opacity_mask, :]
+
+    # Filter rows according to xyz-planes
+    if g_coloring_mode:
+        if g_invert_x_plane[i]:
+            x_mask = (xyz[:, 0] >= (g_x_plane[i] + (np.cumsum(g_head_avatar_checkboxes)[i] - 1) * DISPLACEMENT_FACTOR)).flatten()
+        else:
+            x_mask = (xyz[:, 0] <= (g_x_plane[i] + (np.cumsum(g_head_avatar_checkboxes)[i] - 1) * DISPLACEMENT_FACTOR)).flatten()
+        if g_invert_y_plane[i]:
+            y_mask = (xyz[:, 1] >= g_y_plane[i]).flatten()
+        else:
+            y_mask = (xyz[:, 1] <= g_y_plane[i]).flatten()
+        if g_invert_z_plane[i]:
+            z_mask = (xyz[:, 2] >= g_z_plane[i]).flatten()
+        else:
+            z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten() 
+        xyz = xyz[x_mask & y_mask & z_mask, :]
+        color = color[x_mask & y_mask & z_mask, :]
+
+    # Get mouse 3D position
+    mouse_pos_2d = imgui.get_io().mouse_pos
+    mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+
+    # Compute ray direction
+    ray_direction = mouse_pos_3d - g_camera.position
+    ray_direction = ray_direction / np.linalg.norm(ray_direction)
+
+    # Compute dot product to project each vector onto the ray
+    ray_projection = (xyz - g_camera.position) @ ray_direction
+
+    # Compute closest point on the ray for each hair gaussian
+    closest_points_on_ray = g_camera.position + ray_projection[:, np.newaxis] * ray_direction
+
+    # Compute distances between each head avatar mean and its closest point on the ray
+    distances = np.linalg.norm(xyz - closest_points_on_ray, axis=1)
+    distance_mask = distances < g_selection_distance
+    xyz = xyz[distance_mask, :]
+    color = color[distance_mask, :]
+
+    if len(xyz) == 0:
+        return None, [-2, -2, -2]
+
+    # Index closest point
+    closest_point_relative_index = np.argmin(np.linalg.norm(xyz - g_camera.position))
+    closest_point_index = np.where(np.all(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] == xyz[closest_point_relative_index], axis=1))[0][0]
+
+    return closest_point_index, color[closest_point_relative_index, 0:3]
 
 def update_displacements_and_opacities():
     global gaussians
@@ -400,7 +490,7 @@ def reset_cut():
                 pass
 
 def color_hair():
-    # Get means and colors of selected head avatar
+    # Get means, colors, and opacities of selected head avatar
     i = g_selected_head_avatar_index
     xyz = gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
     color = gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :]
@@ -411,13 +501,21 @@ def color_hair():
     xyz = xyz[opacity_mask, :]
     color = color[opacity_mask, :]
 
-    # Filter rows according to z-plane
+    # Filter rows according to xyz-planes
+    if g_invert_x_plane[i]:
+        x_mask = (xyz[:, 0] >= (g_x_plane[i] + (np.cumsum(g_head_avatar_checkboxes)[i] - 1) * DISPLACEMENT_FACTOR)).flatten()
+    else:
+        x_mask = (xyz[:, 0] <= (g_x_plane[i] + (np.cumsum(g_head_avatar_checkboxes)[i] - 1) * DISPLACEMENT_FACTOR)).flatten()
+    if g_invert_y_plane[i]:
+        y_mask = (xyz[:, 1] >= g_y_plane[i]).flatten()
+    else:
+        y_mask = (xyz[:, 1] <= g_y_plane[i]).flatten()
     if g_invert_z_plane[i]:
         z_mask = (xyz[:, 2] >= g_z_plane[i]).flatten()
     else:
-        z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten()    
-    xyz = xyz[z_mask, :]
-    color = color[z_mask, :]
+        z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten() 
+    xyz = xyz[x_mask & y_mask & z_mask, :]
+    color = color[x_mask & y_mask & z_mask, :]
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
@@ -438,7 +536,7 @@ def color_hair():
     distance_mask = distances < g_max_coloring_distance
 
     # Compute final indices
-    final_indices = np.where(opacity_mask)[0][np.where(z_mask)[0][np.where(distance_mask)[0]]]
+    final_indices = np.where(opacity_mask)[0][np.where(x_mask & y_mask & z_mask)[0][np.where(distance_mask)[0]]]
 
     # Color the closest hair gaussians
     g_head_avatars[i].sh[final_indices, 0:3] = g_selected_color
@@ -453,6 +551,7 @@ def reset_coloring():
             i = g_selected_head_avatar_index
             g_head_avatars[i].sh = color
             gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] = color
+            update_hair_color()
         except RuntimeError as e:
                 pass
 
@@ -501,7 +600,7 @@ def mouse_button_callback(window, button, action, mod):
     g_camera.is_rightmouse_pressed = (button == glfw.MOUSE_BUTTON_RIGHT and pressed)
 
     # Mouse Controller Variables
-    global left_click_start_time, right_click_start_time
+    global left_click_start_time, right_click_start_time, g_selected_color, g_strand_index, g_gaussian_index, g_gaussian_strand_index
 
     # Record the time when the left mouse button is pressed
     if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.PRESS:
@@ -511,18 +610,29 @@ def mouse_button_callback(window, button, action, mod):
     if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.PRESS:
         right_click_start_time = time.time()
 
-    # Select closest head avatar
+    # Select closest head avatar and/or select color
     if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.RELEASE:
         end_time = time.time()
         left_click_duration = end_time - left_click_start_time
         
         if left_click_duration < CLICK_THRESHOLD:
             select_closest_head_avatar()
-            g_renderer.update_selected_head_avatar_index(g_selected_head_avatar_index)
-            g_renderer.update_z_plane(g_z_plane[g_selected_head_avatar_index])
-            g_renderer.update_invert_z_plane(g_invert_z_plane[g_selected_head_avatar_index])
+            update_selection_and_planes()
+            closest_point_index, selected_color = select_closest_gaussian()
+            if closest_point_index is None:
+                g_strand_index = "None"
+                g_gaussian_index = "None"
+                g_gaussian_strand_index = "None"
+            else:
+                g_gaussian_index = closest_point_index
+                if closest_point_index < N_HAIR_GAUSSIANS:
+                    g_strand_index = closest_point_index // N_GAUSSIANS_PER_STRAND
+                    g_gaussian_strand_index = closest_point_index % N_GAUSSIANS_PER_STRAND
+            if g_coloring_mode:
+                g_selected_color = selected_color
+                g_renderer.update_selected_color(g_selected_color)
 
-    # Cut
+    # Cut or Color
     if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.RELEASE:
         end_time = time.time()
         right_click_duration = end_time - right_click_start_time
@@ -577,8 +687,8 @@ def main():
 
     # Head Avatars Global Variables
     global gaussians, g_show_head_avatars_win, g_head_avatar_checkboxes, g_empty_gaussian, g_cutting_mode, \
-        g_coloring_mode, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, \
-        g_hair_points, g_hair_normals
+        g_coloring_mode, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_x_min, g_x_max, g_x_plane, g_invert_x_plane, \
+         g_y_min, g_y_max, g_y_plane, g_invert_y_plane, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, g_hair_points, g_hair_normals
 
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
@@ -809,6 +919,13 @@ def main():
             for i in range(len(g_head_avatars)):
                 changed, g_head_avatar_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1}", g_head_avatar_checkboxes[i])
                 if changed:
+                    if not g_head_avatar_checkboxes[i] and i == g_selected_head_avatar_index:
+                        g_selected_head_avatar_index = -1
+                        g_selected_head_avatar_name = "None"
+                    if g_head_avatar_checkboxes[i]:
+                        g_selected_head_avatar_index = i
+                        g_selected_head_avatar_name = "Head Avatar " + str(g_selected_head_avatar_index + 1)
+                    update_selection_and_planes()
                     update_displacements_and_opacities()
                     g_renderer.update_gaussian_data(gaussians)
             
@@ -822,6 +939,10 @@ def main():
 
             if g_selected_head_avatar_index != -1:
                 i = g_selected_head_avatar_index
+
+                imgui.text(f"Selected Gaussian Index: {g_gaussian_index}")
+                imgui.text(f"Selected Strand Index: {g_strand_index}")                
+                imgui.text(f"Selected Gaussian Index (Relative to Strand): {g_gaussian_strand_index}")
 
                 changed, g_cutting_mode = imgui.checkbox("Cutting Mode", g_cutting_mode)
                 if changed:
@@ -849,7 +970,27 @@ def main():
 
                 changed, g_max_coloring_distance = imgui.slider_float("Coloring Area", g_max_coloring_distance, 0.01, 0.5, "%.2f")
                 if changed:
-                    g_renderer.update_max_coloring_distance(g_max_coloring_distance)                  
+                    g_renderer.update_max_coloring_distance(g_max_coloring_distance) 
+
+                changed, g_x_plane[g_selected_head_avatar_index] = imgui.slider_float("X-Plane", g_x_plane[g_selected_head_avatar_index], g_x_plane_min[g_selected_head_avatar_index], g_x_plane_max[g_selected_head_avatar_index], "x = %.3f")
+                if changed:
+                    g_renderer.update_x_plane(g_x_plane[g_selected_head_avatar_index] + (np.cumsum(g_head_avatar_checkboxes)[g_selected_head_avatar_index] - 1) * DISPLACEMENT_FACTOR)
+
+                imgui.same_line()
+
+                changed, g_invert_x_plane[g_selected_head_avatar_index] = imgui.checkbox("Invert X-Plane", g_invert_x_plane[g_selected_head_avatar_index])
+                if changed:
+                    g_renderer.update_invert_x_plane(g_invert_x_plane[g_selected_head_avatar_index])
+
+                changed, g_y_plane[g_selected_head_avatar_index] = imgui.slider_float("Y-Plane", g_y_plane[g_selected_head_avatar_index], g_y_plane_min[g_selected_head_avatar_index], g_y_plane_max[g_selected_head_avatar_index], "y = %.3f")
+                if changed:
+                    g_renderer.update_y_plane(g_y_plane[g_selected_head_avatar_index])
+
+                imgui.same_line()
+
+                changed, g_invert_y_plane[g_selected_head_avatar_index] = imgui.checkbox("Invert Y-Plane", g_invert_y_plane[g_selected_head_avatar_index])
+                if changed:
+                    g_renderer.update_invert_y_plane(g_invert_y_plane[g_selected_head_avatar_index])                 
 
                 changed, g_z_plane[g_selected_head_avatar_index] = imgui.slider_float("Z-Plane", g_z_plane[g_selected_head_avatar_index], g_z_plane_min[g_selected_head_avatar_index], g_z_plane_max[g_selected_head_avatar_index], "z = %.3f")
                 if changed:
