@@ -47,7 +47,7 @@ g_render_mode = 8
 CLICK_THRESHOLD = 0.2
 DISPLACEMENT_FACTOR = 1.5
 
-g_selection_distance = 0.02
+g_selection_distance = 0.05
 g_max_cutting_distance = 0.2
 g_max_coloring_distance = 0.1
 
@@ -217,7 +217,7 @@ def select_closest_head_avatar():
 
     # Get minimal distance 
     min_dist = np.min(distances)
-    if min_dist >= DISPLACEMENT_FACTOR / 2:
+    if min_dist >= DISPLACEMENT_FACTOR:
         g_selected_head_avatar_index = -1
         g_selected_head_avatar_name = "None"
         return
@@ -293,10 +293,11 @@ def select_closest_gaussian():
         return None, [-2, -2, -2]
 
     # Index closest point
-    closest_point_relative_index = np.argmin(np.linalg.norm(xyz - g_camera.position, axis=1))
+    closest_point_indices = np.argsort(np.linalg.norm(xyz - g_camera.position, axis=1))[:20]
+    closest_point_relative_index = closest_point_indices[0]
     closest_point_index = np.where(np.all(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] == xyz[closest_point_relative_index], axis=1))[0][0]
 
-    return closest_point_index, color[closest_point_relative_index, 0:3]
+    return closest_point_index, np.mean(color[closest_point_indices, 0:3], axis=0)
 
 def update_displacements_and_opacities():
     global gaussians
