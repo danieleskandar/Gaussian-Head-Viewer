@@ -14,6 +14,7 @@ import argparse
 import time
 import frenet_arcle
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
+from plyfile import PlyData, PlyElement
 
 # Add the directory containing main.py to the Python path
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -35,8 +36,8 @@ g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_auto_sort = True
 g_show_control_win = True
-g_show_help_win = True
-g_show_camera_win = True
+g_show_help_win = False
+g_show_camera_win = False
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
 
@@ -51,8 +52,8 @@ g_selection_distance = 0.05
 g_max_cutting_distance = 0.2
 g_max_coloring_distance = 0.1
 
-head_file = "large" # colored (noisy) , large, medium, small (dynamics)
-N_HAIR_STRANDS_dict = {"colored":0, "large":4000, "medium":150, "small":10}
+head_file = "dense" # colored (noisy) , large, medium, small (dynamics), dense
+N_HAIR_STRANDS_dict = {"colored":0, "large":4000, "medium":150, "small":10, "dense": 12000}
 N_HAIR_STRANDS = N_HAIR_STRANDS_dict[head_file]
 N_GAUSSIANS = 0
 N_GAUSSIANS_PER_STRAND = 31
@@ -80,6 +81,7 @@ g_z_min = -1
 g_empty_gaussian = util_gau.GaussianData(np.empty((1, 3)), np.empty((1, 4)), np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3)))
 g_cutting_mode = False
 g_coloring_mode = False
+g_keep_sh = True
 g_selected_color = [0.5, 0.5, 0.5]
 g_x_plane = []
 g_x_plane_max = []
@@ -154,7 +156,7 @@ def open_head_avatar_ply():
                 gaussians.xyz = xyz
                 gaussians.rot = rot
                 gaussians.scale = scale
-                gaussians.opacity = opacity
+                gaussians.opacity = np.ones_like(opacity)
                 gaussians.sh = sh
             else:
                 # Append head avatar to the gaussians object sent to the shader
@@ -166,6 +168,78 @@ def open_head_avatar_ply():
 
         except RuntimeError as e:
             pass
+
+def export_head_avatar(file_path):
+    i = g_selected_head_avatar_index
+    max_sh_degree = 3
+
+    xyz = g_head_avatars[i].xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
+    rot = g_head_avatars[i].rot[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
+    opacity = g_head_avatars[i].opacity[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
+    scale = g_head_avatars[i].scale[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
+    sh = g_head_avatars[i].sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
+
+    # Prepare the inverse sigmoid (logit) of opacities
+    opacities_logit = -np.log(1 / opacity - 1).flatten()
+    # Prepare scales
+    scales_log = np.log(scale)
+
+    # TODO: fix bug
+    features_extra = sh[:, 3:].reshape((sh[:, 3:].shape[0], 3, sh[:, 3:].shape[1] // 3))
+    features_extra = np.transpose(features_extra, [0, 2, 1])
+    features_extra = features_extra.reshape((sh[:, 3:].shape[0], -1))
+    
+    # Concatenate all data into a single array
+    vertex_data = np.hstack([
+        xyz,
+        opacities_logit[:, np.newaxis],
+        scales_log,
+        rot,
+        sh[:, :3],
+        features_extra
+    ])
+
+    # Define the dtype for the ply file using list comprehensions
+    vertex_dtype = [("x", "f4"), ("y", "f4"), ("z", "f4"), ("opacity", "f4")]
+    vertex_dtype.extend([("scale_" + str(i), "f4") for i in range(scale.shape[1])])
+    vertex_dtype.extend([("rot_" + str(i), "f4") for i in range(rot.shape[1])])
+    vertex_dtype.extend([("f_dc_" + str(i), "f4") for i in range(3)])
+    vertex_dtype.extend([("f_rest_" + str(i), "f4") for i in range(3 * (max_sh_degree + 1) ** 2 - 3)])
+
+    # Create structured array directly from vertex_data
+    vertices = np.empty(N_GAUSSIANS, dtype=vertex_dtype)
+    vertices["x"] = vertex_data[:, 0]
+    vertices["y"] = vertex_data[:, 1]
+    vertices["z"] = vertex_data[:, 2]
+    vertices["opacity"] = vertex_data[:, 3]
+
+    start_index = 4
+    num_scales = scale.shape[1]
+    num_rots = rot.shape[1]
+    num_f_dc = 3
+    num_f_rest = 3 * (max_sh_degree + 1) ** 2 - 3
+
+    for i in range(num_scales):
+        vertices["scale_" + str(i)] = vertex_data[:, start_index + i]
+
+    start_index += num_scales
+    for i in range(num_rots):
+        vertices["rot_" + str(i)] = vertex_data[:, start_index + i]
+
+    start_index += num_rots
+    for i in range(num_f_dc):
+        vertices["f_dc_" + str(i)] = vertex_data[:, start_index + i]
+
+    #start_index += num_f_dc
+    #for i in range(num_f_rest):
+    #    vertices["f_rest_" + str(i)] = vertex_data[:, start_index + i]
+
+    # Create the PlyElement
+    vertex_element = PlyElement.describe(vertices, 'vertex')
+
+    # Write to ply file
+    PlyData([vertex_element]).write(file_path)
+
 
 ##################################
 # Head Avatar Controller Variables
@@ -542,6 +616,9 @@ def color_hair():
     # Color the closest hair gaussians
     g_head_avatars[i].sh[final_indices, 0:3] = g_selected_color
     gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :][final_indices, 0:3] = g_selected_color
+    if not g_keep_sh:
+        g_head_avatars[i].sh[final_indices, 3:] = 0
+        gaussians.sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :][final_indices, 3:] = 0
 
 def reset_coloring():
     file_path = f"./models/head ({head_file})/point_cloud/iteration_30000/point_cloud.ply"
@@ -691,7 +768,7 @@ def main():
 
     # Head Avatars Global Variables
     global gaussians, g_show_head_avatars_win, g_head_avatar_checkboxes, g_empty_gaussian, g_cutting_mode, \
-        g_coloring_mode, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_x_min, g_x_max, g_x_plane, g_invert_x_plane, \
+        g_coloring_mode, g_keep_sh, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_x_min, g_x_max, g_x_plane, g_invert_x_plane, \
          g_y_min, g_y_max, g_y_plane, g_invert_y_plane, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, g_hair_points, g_hair_normals
 
     # Head Avatar Controller Global Variables
@@ -737,6 +814,7 @@ def main():
     g_renderer.update_max_cutting_distance(g_max_cutting_distance)
     g_renderer.update_max_coloring_distance(g_max_coloring_distance)
     g_renderer.update_coloring_mode(g_coloring_mode)
+    g_renderer.update_keep_sh(g_keep_sh)
     g_renderer.update_selected_color(g_selected_color)
 
     # maximize window
@@ -748,7 +826,7 @@ def main():
         impl.process_inputs()
         imgui.new_frame()
         
-        gl.glClearColor(0, 0, 0, 1.0)
+        gl.glClearColor(1.0, 1.0, 1.0, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
         update_camera_pose_lazy()
@@ -966,7 +1044,13 @@ def main():
                 if changed:
                     g_cutting_mode = False
                     g_renderer.update_cutting_mode(g_cutting_mode)
-                    g_renderer.update_coloring_mode(g_coloring_mode) 
+                    g_renderer.update_coloring_mode(g_coloring_mode)
+
+                imgui.same_line()
+
+                changed, g_keep_sh = imgui.checkbox("Keep Simple Harmonics", g_keep_sh)
+                if changed:
+                    g_renderer.update_keep_sh(g_keep_sh)
 
                 changed, g_selected_color = imgui.color_edit3("Selected Color", *g_selected_color)
                 if changed:
@@ -1086,6 +1170,19 @@ def main():
                 if changed:
                     update_frame()
                     g_renderer.update_gaussian_data(gaussians)     
+
+                if imgui.button(label='Export'):
+                    file_path = filedialog.asksaveasfilename(
+                        title="Save ply",
+                        initialdir=f"./models/head ({head_file})/point_cloud/",
+                        defaultextension=".ply",
+                        filetypes=[('ply file', '.ply')]
+                    )
+                    if file_path:
+                        try:
+                            export_head_avatar(file_path)
+                        except Exception as e:
+                            print(f"An error occurred: {e}")
 
             imgui.end()
         

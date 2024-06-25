@@ -57,6 +57,7 @@ uniform int N_HAIR_GAUSSIANS;
 uniform int cutting_mode;
 uniform float max_cutting_distance;
 uniform int coloring_mode;
+uniform int keep_sh;
 uniform float max_coloring_distance;
 uniform vec3 selected_color;
 uniform int invert_x_plane;
@@ -257,6 +258,12 @@ void main()
 		}
 	}
 
+	if (keep_sh == 0 && coloring_mode == 1 && alpha != 0 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index) {
+		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
+		vec3 closest_point = cam_pos + projection * ray_direction;
+		float distance = length(g_pos.xyz - closest_point);
+		color = distance < max_coloring_distance ? SH_C0 * selected_color : color;
+	}
 	
 	color += 0.5f;
 }

@@ -124,6 +124,9 @@ class GaussianRenderBase:
     def update_coloring_mode(self, coloring_mode):
         raise NotImplementedError()
 
+    def update_keep_sh(self, keep_sh):
+        raise NotImplementedError()
+
     def update_selected_color(self, selected_color):
         raise NotImplementedError()
 
@@ -249,6 +252,9 @@ class OpenGLRenderer(GaussianRenderBase):
     def update_coloring_mode(self, coloring_mode):
         util.set_uniform_1int(self.program, int(coloring_mode), "coloring_mode")
 
+    def update_keep_sh(self, keep_sh):
+        util.set_uniform_1int(self.program, int(keep_sh), "keep_sh")
+
     def update_selected_color(self, selected_color):
         util.set_uniform_v3(self.program, selected_color, "selected_color")
 
@@ -370,6 +376,9 @@ class OpenGLRendererAxes(GaussianRenderBase):
     
     def update_coloring_mode(self, coloring_mode):
         util.set_uniform_1int(self.program, int(coloring_mode), "coloring_mode")
+
+    def update_keep_sh(self, keep_sh):
+        util.set_uniform_1int(self.program, int(keep_sh), "keep_sh")
 
     def update_selected_color(self, selected_color):
         util.set_uniform_v3(self.program, selected_color, "selected_color")
