@@ -173,71 +173,66 @@ def export_head_avatar(file_path):
     i = g_selected_head_avatar_index
     max_sh_degree = 3
 
-    xyz = g_head_avatars[i].xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
-    rot = g_head_avatars[i].rot[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
-    opacity = g_head_avatars[i].opacity[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
-    scale = g_head_avatars[i].scale[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
-    sh = g_head_avatars[i].sh[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS]
+    xyz, rot, scale, opacity, sh = g_head_avatars[i].get_data()
 
-    # Prepare the inverse sigmoid (logit) of opacities
-    opacities_logit = -np.log(1 / opacity - 1).flatten()
-    # Prepare scales
-    scales_log = np.log(scale)
+    num_pts = xyz.shape[0]
+    num_additional_features = 3 * (max_sh_degree + 1) ** 2 - 3
 
-    # TODO: fix bug
-    features_extra = sh[:, 3:].reshape((sh[:, 3:].shape[0], 3, sh[:, 3:].shape[1] // 3))
-    features_extra = np.transpose(features_extra, [0, 2, 1])
-    features_extra = features_extra.reshape((sh[:, 3:].shape[0], -1))
-    
-    # Concatenate all data into a single array
-    vertex_data = np.hstack([
-        xyz,
-        opacities_logit[:, np.newaxis],
-        scales_log,
-        rot,
-        sh[:, :3],
-        features_extra
+    # Apply inverse operations to scales and opacities
+    scale = np.log(scale)
+    opacity = np.log(opacity / (1 - opacity))
+
+    # Normalize rotations (ensure they are already normalized)
+    rot = rot / np.linalg.norm(rot, axis=-1, keepdims=True)
+
+    # Split the SH matrix into directional coefficients and additional features
+    features_dc = sh[:, :3]
+    features_extra = np.hstack([sh[:, 3::3], sh[:, 4::3], sh[:, 5::3]])
+
+    # Prepare the dtype for the structured array
+    properties = [
+        ('x', 'f4'),
+        ('y', 'f4'),
+        ('z', 'f4'),
+        ('opacity', 'f4')
+    ]
+    for j in range(scale.shape[1]):
+        properties.append((f'scale_{j}', 'f4'))
+    for j in range(rot.shape[1]):
+        properties.append((f'rot_{j}', 'f4'))
+    properties.extend([
+        ('f_dc_0', 'f4'),
+        ('f_dc_1', 'f4'),
+        ('f_dc_2', 'f4')
     ])
+    for j in range(num_additional_features):
+        properties.append((f'f_rest_{j}', 'f4'))
 
-    # Define the dtype for the ply file using list comprehensions
-    vertex_dtype = [("x", "f4"), ("y", "f4"), ("z", "f4"), ("opacity", "f4")]
-    vertex_dtype.extend([("scale_" + str(i), "f4") for i in range(scale.shape[1])])
-    vertex_dtype.extend([("rot_" + str(i), "f4") for i in range(rot.shape[1])])
-    vertex_dtype.extend([("f_dc_" + str(i), "f4") for i in range(3)])
-    vertex_dtype.extend([("f_rest_" + str(i), "f4") for i in range(3 * (max_sh_degree + 1) ** 2 - 3)])
+    # Create a structured array
+    vertices = np.empty(num_pts, dtype=properties)
+    # Gaussian means
+    vertices['x'] = xyz[:, 0]
+    vertices['y'] = xyz[:, 1]
+    vertices['z'] = xyz[:, 2]
+    # Opacities
+    vertices['opacity'] = opacity[:, 0]
+    # Scales
+    for j in range(scale.shape[1]):
+        vertices[f'scale_{j}'] = scale[:, j]
+    # Rotations
+    for j in range(rot.shape[1]):
+        vertices[f'rot_{j}'] = rot[:, j]
+    # Colors
+    vertices['f_dc_0'] = features_dc[:, 0]
+    vertices['f_dc_1'] = features_dc[:, 1]
+    vertices['f_dc_2'] = features_dc[:, 2]
+    for j in range(num_additional_features):
+        vertices[f'f_rest_{j}'] = features_extra[:, j]
 
-    # Create structured array directly from vertex_data
-    vertices = np.empty(N_GAUSSIANS, dtype=vertex_dtype)
-    vertices["x"] = vertex_data[:, 0]
-    vertices["y"] = vertex_data[:, 1]
-    vertices["z"] = vertex_data[:, 2]
-    vertices["opacity"] = vertex_data[:, 3]
-
-    start_index = 4
-    num_scales = scale.shape[1]
-    num_rots = rot.shape[1]
-    num_f_dc = 3
-    num_f_rest = 3 * (max_sh_degree + 1) ** 2 - 3
-
-    for i in range(num_scales):
-        vertices["scale_" + str(i)] = vertex_data[:, start_index + i]
-
-    start_index += num_scales
-    for i in range(num_rots):
-        vertices["rot_" + str(i)] = vertex_data[:, start_index + i]
-
-    start_index += num_rots
-    for i in range(num_f_dc):
-        vertices["f_dc_" + str(i)] = vertex_data[:, start_index + i]
-
-    #start_index += num_f_dc
-    #for i in range(num_f_rest):
-    #    vertices["f_rest_" + str(i)] = vertex_data[:, start_index + i]
-
-    # Create the PlyElement
+    # Create PLY element
     vertex_element = PlyElement.describe(vertices, 'vertex')
 
-    # Write to ply file
+    # Write to PLY file
     PlyData([vertex_element]).write(file_path)
 
 
