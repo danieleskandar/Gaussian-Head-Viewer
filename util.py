@@ -3,6 +3,7 @@ import OpenGL.GL.shaders as shaders
 import numpy as np
 import glm
 import ctypes
+import os
 
 class Camera:
     def __init__(self, h, w):
@@ -363,3 +364,23 @@ def glhUnProjectf(winx, winy, winz, modelview, projection, viewport):
 
     out_vec /= out_vec[3]
     return out_vec[:3]
+
+def find_closest_file(target_amp, target_freq, base_directory):
+    # Find the closest amplitude directory
+    amp_dirs = os.listdir(base_directory)
+    amp_values = np.array([float(d) for d in amp_dirs])
+    closest_amp_index = np.argmin(np.abs(amp_values - target_amp))
+    closest_amp_dir = amp_dirs[closest_amp_index]
+    
+    # Path to the directory with the closest amplitude
+    closest_amp_path = os.path.join(base_directory, closest_amp_dir)
+    
+    # Find the closest frequency file in the selected amplitude directory
+    freq_files = os.listdir(closest_amp_path)
+    freq_values = np.array([float(f.replace('.npy', '')) for f in freq_files])
+    closest_freq_index = np.argmin(np.abs(freq_values - target_freq))
+    closest_freq_file = freq_files[closest_freq_index]
+    
+    # Construct and return the full path
+    full_path = os.path.join(base_directory, closest_amp_dir, closest_freq_file)
+    return full_path
