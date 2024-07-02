@@ -1,10 +1,16 @@
 # frenet can be parametrized using arclength or 3d points.
 # since the points are uniformly distributed both are ok
 
-
+import multiprocessing as mp
 import numpy as np
 import argparse
 import os 
+import util_gau
+
+N_HAIR_STRANDS_dict = {"colored":0, "large":4000, "medium":150, "small":10, "dense": 12000}
+N_HAIR_STRANDS = 0
+N_GAUSSIANS_PER_STRAND = 0
+N_HAIR_GAUSSIANS = 0
 
 # use this to get rid of the nan values, if any
 def rotmat2qvec(R):
@@ -154,6 +160,67 @@ def interpolate_and_normalize(vector):
     interpolated_vector = (vector[:,:-1,:] + vector[:,1:,:]) / 2
     return normalize_or_fallback(interpolated_vector)
 
+def quaternions_multiply(quaternion1, quaternion0):
+    w0, x0, y0, z0 = quaternion0.transpose(2, 0, 1)
+    w1, x1, y1, z1 = quaternion1.transpose(2, 0, 1)
+    return np.array([-x1 * x0 - y1 * y0 - z1 * z0 + w1 * w0,
+                     x1 * w0 + y1 * z0 - z1 * y0 + w1 * x0,
+                     -x1 * z0 + y1 * w0 + z1 * x0 + w1 * y0,
+                     x1 * y0 - y1 * x0 + z1 * w0 + w1 * z0]).transpose(1,2,0)
+
+def calculate_pts_scal(hair_strands):
+    midpoints = (hair_strands[:,:-1,:] + hair_strands[:,1:,:]) / 2
+    x_scales = np.linalg.norm(hair_strands[:,:-1,:]-hair_strands[:,1:,:], axis=2)
+    scales = np.dstack([x_scales, x_scales/10, x_scales/10])
+    return midpoints, scales
+
+def calculate_rot_quat(hair_strands):
+    T = np.zeros_like(hair_strands)
+    # Approximate Tangent Vectors
+    T[:,1:-1,:] = hair_strands[:,2:,:]-hair_strands[:,:-2,:]
+
+    # Handle start/end points (simple extrapolation)
+    T[:,0,:] = hair_strands[:,1,:] - hair_strands[:,0,:]
+    T[:,-1,:] = hair_strands[:,-1,:] - hair_strands[:,-2,:]
+    # Normalize the tangent vectors and if too small fallback
+    T = normalize_or_fallback(T)
+
+    # Approximate Normal and Binormal Vectors
+    N = np.zeros_like(hair_strands)
+    N[:,:,1] = -T[:,:,2]
+    N[:,:,2] = T[:,:,1]
+    B = np.cross(T, N)
+
+    # Interpolate and normalize
+    interpolated_T = interpolate_and_normalize(T)
+    interpolated_N = interpolate_and_normalize(N)
+    interpolated_B = interpolate_and_normalize(B)
+
+    # Quaternion representing the rotation of the 1st canonical vector (1,0,0) to the tangents. 
+    # Exploits simple vector and the already calculated normals
+    quats_T = np.dstack((1 + interpolated_T[:,:,0], interpolated_N))
+    quats_T /= np.linalg.norm(quats_T, axis=2)[:,:,np.newaxis]
+
+    w, x, y, z = quats_T.transpose(2, 0, 1)
+    # 2nd canonical vector is rotated by quats_T. Used SymPy to exploit simplicity of canonical vectors.
+    normals = np.array([-2*w*z + 2*x*y, w**2 - x**2 + y**2 - z**2, 2*w*x + 2*y*z]).transpose(1,2,0)
+    quats_N = np.dstack((1 + np.einsum('ijk,ijk->ij', normals, interpolated_N), np.cross(normals, interpolated_N)))
+    quats_N /= np.linalg.norm(quats_N, axis=2)[:,:,np.newaxis]
+
+    # Getting the rotation quaternion from rotating with quats_T and then quats_N
+    quats_NT = quaternions_multiply(quats_N, quats_T)
+    w, x, y, z = quats_NT.transpose(2, 0, 1)
+    # 3rd canonical vector is rotated by quats_T. Used SymPy to exploit simplicity of canonical vectors.
+    binormals = np.array([2*w*y + 2*x*z, -2*w*x + 2*y*z, w**2 - x**2 - y**2 + z**2]).transpose(1,2,0)
+    quats_B = np.dstack((1 + np.einsum('ijk,ijk->ij', binormals, interpolated_B), np.cross(binormals, interpolated_B)))
+    quats_B /= np.linalg.norm(quats_B, axis=2)[:,:,np.newaxis]
+
+    # Getting the final rotation quaternion
+    quats_BNT = quaternions_multiply(quats_B, quats_NT)
+    quats_BNT[quats_BNT[:,:,0]<0] *= -1
+
+    return quats_BNT
+
 # strands has shape (#strands, 32, 3). iterates over all strands
 def calculate_frenet_frame_t_opt(hair_strands):
 
@@ -169,13 +236,9 @@ def calculate_frenet_frame_t_opt(hair_strands):
 
     # Approximate Normal and Binormal Vectors with Fallback
     N = np.zeros_like(hair_strands)
-    N[:,:-1,:] = T[:,1:,:]-T[:,:-1,:]
-    N[:,-1,:] = N[:,-2,:]
-    # Normalize the normal vectors and if too small fallback
-    N = normalize_or_fallback(N)
-
+    N[:,:,0] = T[:,:,1]
+    N[:,:,1] = -T[:,:,0]
     B = np.cross(T, N)
-    B = normalize_or_fallback(B)
 
     # Interpolate and normalize
     interpolated_T = interpolate_and_normalize(T)
@@ -191,6 +254,18 @@ def calculate_frenet_frame_t_opt(hair_strands):
     scales = np.dstack([x_scales, x_scales/10, x_scales/10])
 
     return midpoints, qvecs, scales
+
+def parallel_calculate_quats(input_array):
+    num_cpus = mp.cpu_count()
+    N = input_array.shape[0]
+    chunk_size = (N + num_cpus - 1) // num_cpus  # Compute chunk size
+    chunks = [input_array[i:min(i + chunk_size, N)] for i in range(0, N, chunk_size)]
+    
+    with mp.Pool(processes=num_cpus) as pool:
+        results = pool.map(calculate_rot_quat, chunks)
+    
+    quats = np.concatenate(results, axis=0)
+    return quats
 
 def calculate_frenet_frame_t_non(hair_strands):
     groom_scales = []
@@ -264,9 +339,96 @@ def calculate_frenet_frame_t(inp_strands, args):
     np.save(rot_frenet, groom_R)
     np.save(scale_frenet, groom_scales)
 
+def calculate_frenet_curls(head_file, ncurls, max_amp, max_freq):
+    global N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, N_HAIR_GAUSSIANS
+
+    file_path = f"./models/head ({head_file})/point_cloud/iteration_30000/point_cloud.ply"
+    head_avatar = util_gau.load_ply(file_path)
+    N_HAIR_STRANDS = N_HAIR_STRANDS_dict[head_file]
+    N_GAUSSIANS_PER_STRAND = 31
+    N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
+
+    strands_xyz = head_avatar.xyz[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+    strands_rot = head_avatar.rot[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+    strands_scale = head_avatar.scale[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+
+    points, normals = get_hair_points(strands_xyz, strands_rot, strands_scale)
+    amps = np.linspace(max_amp, 0, ncurls, endpoint=False)[::-1]
+    freqs= np.linspace(max_freq, 0, ncurls, endpoint=False)[::-1]
+    for amp in amps:
+        for freq in freqs:
+            global_nudging = get_curls(amp, freq, normals)
+            new_points = points+global_nudging
+            rots = calculate_rot_quat(new_points)
+            
+            newpath = f"./models/head ({head_file})/rots/{amp:.8f}/"
+            if not os.path.exists(newpath):
+                os.makedirs(newpath)
+
+            np.save(f"./models/head ({head_file})/rots/{amp:.8f}/{freq:.8f}.npy",  rots)
+        
+def get_hair_points(xyz, rot, scale):
+    global N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, N_HAIR_GAUSSIANS
+    strands = np.zeros((N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND+1, 3))
+    strands_xyz = xyz[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+    strands_rot = rot[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+    strands_scale = scale[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
+
+    w, x, y, z = strands_rot.transpose(2, 0, 1)
+    global_x_displacement = np.array([1. - 2. * (y * y + z * z), 2. * (x * y + w * z), 2. * (x * z - w * y)]).transpose(1,2,0)
+    
+    displacements = 0.5*strands_scale*global_x_displacement 
+    strands[:,0] = strands_xyz[:,0] - displacements[:,0]
+    strands[:,1:] = strands_xyz + displacements
+
+    # Mean x-displacement of the hair gaussians after first couple gaussians
+    start = N_GAUSSIANS_PER_STRAND//10
+    mean_last_disps = np.mean(global_x_displacement[:,start:], axis=1)
+
+    # Orthogonal vectors which lie on the plane perpendicular to hair
+    normals = np.zeros_like(mean_last_disps)
+    normals[:, 0], normals[:, 1] = mean_last_disps[:, 1], -mean_last_disps[:, 0]
+    binormals = np.cross(mean_last_disps, normals)
+    normals /= np.linalg.norm(normals, axis=1)[:,np.newaxis]
+    binormals /= np.linalg.norm(binormals, axis=1)[:,np.newaxis]
+    disps = np.stack((normals, binormals))
+    return strands, disps
+
+def get_curls(amp, freq, hair_normals):
+    global N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, N_HAIR_GAUSSIANS
+    t = np.linspace(0, 2, N_GAUSSIANS_PER_STRAND+1)[:,np.newaxis].T
+    
+    # Fixing random seed for future random initial frequency and overall noise
+    np.random.seed(0)
+    random_init_freq = np.random.uniform(low=0, high=2*np.pi, size=(N_HAIR_STRANDS,1))
+    # Parameter t with random initial values so it doesn't look too uniform
+    t_strands = t+random_init_freq
+    # Multiplier to t value so it curls either way
+    random_dir = np.random.choice([-1, 1], size=(N_HAIR_STRANDS,1))
+
+    # Quadratic so hair roots are not displaced
+    amplitude = (t**2*amp)[:,:,np.newaxis]
+    # Sine and cosine to get coil shaped curls and not one-dimensional
+    sin_wave = amplitude*np.sin(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
+    cos_wave = amplitude*np.cos(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
+
+    sin_noise = cos_noise = 0 
+    if amp!=0:
+        sin_noise = np.random.normal(0, amp/30, size=sin_wave.shape)
+        cos_noise = np.random.normal(0, amp/30, size=cos_wave.shape)
+
+    # The curls are applied along the two vectors that form the plane perpendicular to the hair
+    global_nudging = (sin_wave+sin_noise)*hair_normals[0][:,np.newaxis] + (cos_wave+cos_noise)*hair_normals[1][:,np.newaxis]
+    return global_nudging
+
 def main(args):
     for arg in vars(args):
         print(f'{arg}: {getattr(args, arg)}')
+    
+    if args.ncurls != 0:
+        print(f'Calculating {str(args.ncurls)} curls with amplitude 0 to {args.max_amp} and frequency 0 to {args.max_freq}.')
+        calculate_frenet_curls(args.inp_strands, args.ncurls, args.max_amp, args.max_freq)
+        return 0
 
     if args.inp_strands.endswith('.npy'):
         calculate_frenet_frame_t(args.inp_strands, args)
@@ -286,7 +448,9 @@ if __name__ == "__main__":
     #parser.add_argument('--inp_strands', default='/home/bkabadayi/data2tb/tmp_experiments/phyfaceavatar/sparse_hair_Actor03/guided_2_k10_p32_dist.npy', type=str)
     parser.add_argument('--inp_strands', default='/home/bkabadayi/data2tb/rot_set/data/disp/320_to_320/', type=str)
     parser.add_argument('--rot_format', choices=['quat', 'mat'], help='if frenet is for init, use quat, for animation use matrix', default='mat', type=str)
-    
+    parser.add_argument('--ncurls', default=0, type=int)
+    parser.add_argument('--max_amp', default=0.025, type=float)
+    parser.add_argument('--max_freq', default=3, type=float)
 
     args, _ = parser.parse_known_args()
     args = parser.parse_args()

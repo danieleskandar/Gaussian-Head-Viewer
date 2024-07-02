@@ -12,7 +12,7 @@ import os
 import sys
 import argparse
 import time
-import frenet_arcle
+from frenet_arcle import parallel_calculate_quats, calculate_rot_quat, calculate_pts_scal, rotmats2qvecs
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 from plyfile import PlyData, PlyElement
 
@@ -52,7 +52,7 @@ g_selection_distance = 0.05
 g_max_cutting_distance = 0.2
 g_max_coloring_distance = 0.1
 
-head_file = "dense" # colored (noisy) , large, medium, small (dynamics), dense
+head_file = "large" # colored (noisy) , large, medium, small (dynamics), dense
 N_HAIR_STRANDS_dict = {"colored":0, "large":4000, "medium":150, "small":10, "dense": 12000}
 N_HAIR_STRANDS = N_HAIR_STRANDS_dict[head_file]
 N_GAUSSIANS = 0
@@ -436,20 +436,26 @@ def update_means(head_avatar_index):
     gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS, :] += d
 
     # Handling case for which there are no hair strands. Able to open a generic gaussian ply
-    if g_hair_points[i].shape[0] != 0:
+    # And the case where there's zero frequency or amplitude
+    if (g_hair_points[i].shape[0] != 0  and 
+        len(g_wave_amplitude)*len(g_wave_frequency)!=0 and g_wave_frequency[i]*g_wave_amplitude[i]!=0):
         points = g_hair_points[i] + d
-        c = get_curls(i)
+        
+        global_nudging = get_curls(g_wave_frequency[i], g_wave_frequency[i], hair_normals = g_hair_normals[i])
+        new_points = points+global_nudging
+        xyz, scale = calculate_pts_scal(new_points)
+        
+        # New gaussians from new points either from file or calculated on the spot
+        try:
+            path = util.find_closest_file(g_wave_amplitude[i], g_wave_frequency[i], f"./models/head ({head_file})/rots/")
+            rot = np.load(path)
 
-        # The curls are applied along the two vectors that form the plane perpendicular to the hair
-        global_nudging = np.zeros((N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND+1, 3))
-        hair_normals = g_hair_normals[i]
-        global_nudging[:,1:,:] = c[:,1:,0:1]*hair_normals[0] + c[:,1:,1:2]*hair_normals[1]
+        except FileNotFoundError:
+            rot = calculate_rot_quat(new_points)
 
-        # New gaussians from new points. Original implementation is faulty: sometimes gaussians are not connected
-        xyz, rot, scale = frenet_arcle.calculate_frenet_frame_t_opt(points+global_nudging)
         gaussians.xyz[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = xyz.reshape(-1,3)
         gaussians.rot[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = rot.reshape(-1,4)
-        gaussians.scale[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = scale.reshape(-1,3)
+        gaussians.scale[i*N_GAUSSIANS:i*N_GAUSSIANS+N_HAIR_GAUSSIANS, :] = scale.reshape(-1,3)*g_hair_scale[i]
 
     g_head_avatar_means[i] = np.mean(gaussians.xyz[i*N_GAUSSIANS:(i+1)*N_GAUSSIANS], axis=0)
 
@@ -462,25 +468,29 @@ def get_hair_points(xyz, rot, scale):
     strands = np.zeros((N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND+1, 3))
     strands_xyz = xyz[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
     strands_rot = rot[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
-    strands_rot[strands_rot[:, :, 0] < 0] *= -1
     strands_scale = scale[:N_HAIR_GAUSSIANS].reshape(N_HAIR_STRANDS, N_GAUSSIANS_PER_STRAND, -1)
 
-    r, x, y, z = strands_rot[:,:,0], strands_rot[:,:,1], strands_rot[:,:,2], strands_rot[:,:,3]
-    global_x_displacement = np.array([1. - 2. * (y * y + z * z), 2. * (x * y + r * z), 2. * (x * z - r * y)]).transpose(1,2,0)
-    global_y_displacement = np.array([2 * (x * y + r * z), 1 - 2 * (x * x + z * z), 2 * (y * z - r * x)]).transpose(1,2,0)
-    global_z_displacement = np.array([2 * (x * z - r * y), 2 * (y * z + r * x), 1 - 2 * (x * x + y * y)]).transpose(1,2,0)
+    w, x, y, z = strands_rot.transpose(2, 0, 1)
+    global_x_displacement = np.array([1. - 2. * (y * y + z * z), 2. * (x * y + w * z), 2. * (x * z - w * y)]).transpose(1,2,0)
     
     displacements = 0.5*strands_scale*global_x_displacement 
     strands[:,0] = strands_xyz[:,0] - displacements[:,0]
     strands[:,1:] = strands_xyz + displacements
 
+    # Mean x-displacement of the hair gaussians after first couple gaussians
+    start = N_GAUSSIANS_PER_STRAND//10
+    mean_last_disps = np.mean(global_x_displacement[:,start:], axis=1)
+
     # Orthogonal vectors which lie on the plane perpendicular to hair
-    disps = np.vstack((global_y_displacement[np.newaxis], global_z_displacement[np.newaxis]))
-    disps /= np.linalg.norm(disps, axis=2)[:,:,np.newaxis]
+    normals = np.zeros_like(mean_last_disps)
+    normals[:, 0], normals[:, 1] = mean_last_disps[:, 1], -mean_last_disps[:, 0]
+    binormals = np.cross(mean_last_disps, normals)
+    normals /= np.linalg.norm(normals, axis=1)[:,np.newaxis]
+    binormals /= np.linalg.norm(binormals, axis=1)[:,np.newaxis]
+    disps = np.stack((normals, binormals))
     return strands, disps
 
-def get_curls(head_avatar_index):
-    i = head_avatar_index
+def get_curls(amp, freq, hair_normals):
     t = np.linspace(0, 2, N_GAUSSIANS_PER_STRAND+1)[:,np.newaxis].T
     
     # Fixing random seed for future random initial frequency and overall noise
@@ -488,23 +498,30 @@ def get_curls(head_avatar_index):
     random_init_freq = np.random.uniform(low=0, high=2*np.pi, size=(N_HAIR_STRANDS,1))
     # Parameter t with random initial values so it doesn't look too uniform
     t_strands = t+random_init_freq
+    # Multiplier to t value so it curls either way
+    random_dir = np.random.choice([-1, 1], size=(N_HAIR_STRANDS,1))
 
     # Quadratic so hair roots are not displaced
-    amplitude = (t**2*g_wave_amplitude[i])[:,:,np.newaxis]
+    amplitude = (t**2*amp)[:,:,np.newaxis]
     # Sine and cosine to get coil shaped curls and not one-dimensional
-    sin_wave = np.sin(np.pi * g_wave_frequency[i] * t + t_strands)
-    cos_wave = np.cos(np.pi * g_wave_frequency[i] * t + t_strands)
-    curls = amplitude*np.dstack((sin_wave, cos_wave)) 
+    sin_wave = amplitude*np.sin(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
+    cos_wave = amplitude*np.cos(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
 
-    noise = 0 if g_wave_amplitude[i]==0 else np.random.normal(0, abs(np.median(curls)), size=curls.shape)
-    return (curls+noise).astype(np.float32)
+    sin_noise = cos_noise = 0 
+    if amp!=0:
+        sin_noise = np.random.normal(0, amp/30, size=sin_wave.shape)
+        cos_noise = np.random.normal(0, amp/30, size=cos_wave.shape)
+
+    # The curls are applied along the two vectors that form the plane perpendicular to the hair
+    global_nudging = (sin_wave+sin_noise)*hair_normals[0][:,np.newaxis] + (cos_wave+cos_noise)*hair_normals[1][:,np.newaxis]
+    return global_nudging
 
 def get_frame(head_avatar_index):
     i = head_avatar_index
     if g_frame[i] > 0:
         xyz = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-        rot = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_rot_frenet.npy")
-        rot = frenet_arcle.rotmats2qvecs(rot).reshape(-1,4)
+        rot = np.load(f"./models/head ({head_file})/320_to_320/frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
+        rot = rotmats2qvecs(rot).reshape(-1,4)
         _, _, scale, _, _ = g_head_avatars[i].get_data()
         hair_points, hair_normals = get_hair_points(xyz, rot, scale)
         g_hair_points[i] = hair_points
@@ -1137,7 +1154,7 @@ def main():
                     update_hair_scale()
                     g_renderer.update_gaussian_data(gaussians)   
 
-                changed, g_wave_frequency[i] = imgui.slider_float("Wave Frequency", g_wave_frequency[i], 0, 5, "Wave Frequency = %.2f")
+                changed, g_wave_frequency[i] = imgui.slider_float("Wave Frequency", g_wave_frequency[i], 0, 3, "Wave Frequency = %.2f")
                 if changed:
                     update_means(g_selected_head_avatar_index)
                     g_renderer.update_gaussian_data(gaussians)
@@ -1149,7 +1166,7 @@ def main():
                     update_means(g_selected_head_avatar_index)
                     g_renderer.update_gaussian_data(gaussians) 
 
-                changed, g_wave_amplitude[i] = imgui.slider_float("Wave Amplitude", g_wave_amplitude[i], 0, 0.05, "Wave Amplitude = %.3f")
+                changed, g_wave_amplitude[i] = imgui.slider_float("Wave Amplitude", g_wave_amplitude[i], 0, 0.025, "Wave Amplitude = %.3f")
                 if changed:
                     update_means(g_selected_head_avatar_index)
                     g_renderer.update_gaussian_data(gaussians)
