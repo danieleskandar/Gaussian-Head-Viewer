@@ -441,7 +441,7 @@ def update_means(head_avatar_index):
         len(g_wave_amplitude)*len(g_wave_frequency)!=0 and g_wave_frequency[i]*g_wave_amplitude[i]!=0):
         points = g_hair_points[i] + d
         
-        global_nudging = get_curls(g_wave_frequency[i], g_wave_frequency[i], hair_normals = g_hair_normals[i])
+        global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i])
         new_points = points+global_nudging
         xyz, scale = calculate_pts_scal(new_points)
         
