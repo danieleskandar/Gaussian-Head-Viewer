@@ -47,18 +47,11 @@ g_render_mode = 8
 
 CLICK_THRESHOLD = 0.2
 DISPLACEMENT_FACTOR = 1.5
-AVATAR_SEPARATION = 0.3
+AVATAR_SEPARATION = 0.1
 
 g_selection_distance = 0.02
 g_max_cutting_distance = 0.2
 g_max_coloring_distance = 0.1
-
-head_file = "dense" # colored (noisy) , large, medium, small (dynamics), dense
-N_HAIR_STRANDS_dict = {"colored":0, "large":4000, "medium":150, "small":10, "dense": 12000}
-N_HAIR_STRANDS = N_HAIR_STRANDS_dict[head_file]
-N_GAUSSIANS = 0
-N_GAUSSIANS_PER_STRAND = 31
-N_HAIR_GAUSSIANS = N_HAIR_STRANDS * N_GAUSSIANS_PER_STRAND
 
 ############################
 # Mouse Controller Variables
@@ -185,7 +178,7 @@ def export_head_avatar(file_path):
     start = get_start_index(i)
     max_sh_degree = 3
 
-    xyz = np.copy(gaussians.xyz[start:start+g_n_gaussians[i], :])
+    xyz = np.copy(g_head_avatars[i].xyz)
     rot = np.copy(gaussians.rot[start:start+g_n_gaussians[i], :])
     scale = np.copy(gaussians.scale[start:start+g_n_gaussians[i], :])
     opacity = np.copy(gaussians.opacity[start:start+g_n_gaussians[i], :])
@@ -210,7 +203,8 @@ def export_head_avatar(file_path):
 
     # Apply inverse operations to scales and opacities
     scale = np.log(scale)
-    opacity = np.log(opacity / (1 - opacity))
+    with np.errstate(divide='ignore', invalid='ignore'): 
+        opacity = np.log(opacity / (1 - opacity))
 
     # Normalize rotations (ensure they are already normalized)
     rot = rot / np.linalg.norm(rot, axis=-1, keepdims=True)
@@ -514,7 +508,7 @@ def update_means(head_avatar_index):
         
         # New gaussians from new points either from file or calculated on the spot
         try:
-            path = util.find_closest_file(g_wave_amplitude[i], g_wave_frequency[i], f"./models/head ({head_file})/rots/")
+            path = util.find_closest_file(g_wave_amplitude[i], g_wave_frequency[i], f"{g_folder_paths[i]}/rots/")
             rot = np.load(path)
 
         except FileNotFoundError:
@@ -650,7 +644,7 @@ def cut_hair():
 
             if k != 0:
                 g_head_avatars[i].xyz[j*g_n_gaussians_per_strand[i]+k:(j+1)*g_n_gaussians_per_strand[i], :] = g_head_avatars[i].xyz[j*g_n_gaussians_per_strand[i]+k-1, :]
-                gaussians.xyz[start+j*g_n_gaussians_per_strand[i]+k:start+(j+1)*g_n_gaussians_per_strand[i], :] = g_head_avatars[i].xyz[j*g_n_gaussians_per_strand[i]+k-1, :]
+                gaussians.xyz[start+j*g_n_gaussians_per_strand[i]+k:start+(j+1)*g_n_gaussians_per_strand[i], :] = gaussians.xyz[start+j*g_n_gaussians_per_strand[i]+k, :]
 
 
 def reset_cut():
@@ -659,10 +653,11 @@ def reset_cut():
         try:
             # Set opacity from original head avatar
             head_avatar, _ = util_gau.load_ply(file_path)
-            _, _, _, opacity, _ = head_avatar.get_data()
+            xyz, _, _, opacity, _ = head_avatar.get_data()
             i = g_selected_head_avatar_index
             start = get_start_index(i)
             g_head_avatars[i].opacity[:g_n_hair_gaussians[i], :] = opacity[:g_n_hair_gaussians[i], :]
+            g_head_avatars[i].xyz = xyz
             update_hair_opacity()
         except RuntimeError as e:
                 pass
@@ -1144,6 +1139,7 @@ def main():
 
                 if imgui.button(label="Reset Hair Style"):
                     reset_cut()
+                    update_means(g_selected_head_avatar_index)
                     g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_coloring_mode = imgui.checkbox("Coloring Mode", g_coloring_mode)
