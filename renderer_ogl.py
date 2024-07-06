@@ -112,10 +112,13 @@ class GaussianRenderBase:
     def update_camera_intrin(self, camera: util.Camera):
         raise NotImplementedError()
 
-    def update_N_GAUSSIANS(self, N_GAUSSIANS):
+    def update_start(self, start):
         raise NotImplementedError()
 
-    def update_N_HAIR_GAUSSIANS(self, N_HAIR_GAUSSIANS):
+    def update_n_gaussians(self, n_gaussians):
+        raise NotImplementedError()
+
+    def update_n_hair_gaussians(self, n_hair_gaussians):
         raise NotImplementedError()
 
     def update_cutting_mode(self, cutting_mode):
@@ -240,11 +243,14 @@ class OpenGLRenderer(GaussianRenderBase):
         util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
         util.set_uniform_v3(self.program, camera.get_htanfovxy_focal(), "hfovxy_focal")
 
-    def update_N_GAUSSIANS(self, N_GAUSSIANS):
-        util.set_uniform_1int(self.program, N_GAUSSIANS, "N_GAUSSIANS")
+    def update_start(self, start):
+        util.set_uniform_1int(self.program, start, "start_index")
 
-    def update_N_HAIR_GAUSSIANS(self, N_HAIR_GAUSSIANS):
-        util.set_uniform_1int(self.program, N_HAIR_GAUSSIANS, "N_HAIR_GAUSSIANS")
+    def update_n_gaussians(self, n_gaussians):
+        util.set_uniform_1int(self.program, n_gaussians, "n_gaussians")
+
+    def update_n_hair_gaussians(self, n_hair_gaussians):
+        util.set_uniform_1int(self.program, n_hair_gaussians, "n_hair_gaussians")
 
     def update_cutting_mode(self, cutting_mode):
         util.set_uniform_1int(self.program, int(cutting_mode), "cutting_mode")
@@ -365,11 +371,14 @@ class OpenGLRendererAxes(GaussianRenderBase):
         util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
         util.set_uniform_v3(self.program, camera.get_htanfovxy_focal(), "hfovxy_focal")
 
-    def update_N_GAUSSIANS(self, N_GAUSSIANS):
-        util.set_uniform_1int(self.program, N_GAUSSIANS, "N_GAUSSIANS")
+    def update_start(self, start):
+        util.set_uniform_1int(self.program, start, "start_index")
 
-    def update_N_HAIR_GAUSSIANS(self, N_HAIR_GAUSSIANS):
-        util.set_uniform_1int(self.program, N_HAIR_GAUSSIANS, "N_HAIR_GAUSSIANS")
+    def update_n_gaussians(self, n_gaussians):
+        util.set_uniform_1int(self.program, n_gaussians, "n_gaussians")
+
+    def update_n_hair_gaussians(self, n_hair_gaussians):
+        util.set_uniform_1int(self.program, n_hair_gaussians, "n_hair_gaussians")
 
     def update_cutting_mode(self, cutting_mode):
         util.set_uniform_1int(self.program, int(cutting_mode), "cutting_mode")

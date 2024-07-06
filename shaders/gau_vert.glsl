@@ -52,8 +52,9 @@ uniform int sh_dim;
 uniform float scale_modifier;
 uniform int render_mod;  // > 0 render 0-ith SH dim, -1 depth, -2 bill board, -3 gaussian
 
-uniform int N_GAUSSIANS;
-uniform int N_HAIR_GAUSSIANS;
+uniform int start_index;
+uniform int n_gaussians;
+uniform int n_hair_gaussians;
 uniform int cutting_mode;
 uniform float max_cutting_distance;
 uniform int coloring_mode;
@@ -188,14 +189,14 @@ void main()
 		return;
 	}
 
-	if (cutting_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index && boxid < selected_head_avatar_index * N_GAUSSIANS + N_HAIR_GAUSSIANS) {	
+	if (cutting_mode == 1 && selected_head_avatar_index > -1 && boxid >= start_index && boxid < start_index + n_hair_gaussians) {	
 		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
 		vec3 closest_point = cam_pos + projection * ray_direction;
 		float distance = length(g_pos.xyz - closest_point);
 		alpha = distance < max_cutting_distance ? 0 : alpha;
 	}
 
-	if (coloring_mode == 1 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index) {
+	if (coloring_mode == 1 && selected_head_avatar_index > -1 && boxid >= start_index && boxid < (start_index + n_gaussians)) {
 		if (invert_x_plane == 0 && g_pos.x >= x_plane) alpha = 0;
 		if (invert_x_plane == 1 && g_pos.x <= x_plane) alpha = 0;
 		if (invert_y_plane == 0 && g_pos.y >= y_plane) alpha = 0;
@@ -219,7 +220,7 @@ void main()
     dir = normalize(dir);
 	color = SH_C0 * get_vec3(sh_start);
 
-	if (coloring_mode == 1 && alpha != 0 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index) {
+	if (coloring_mode == 1 && alpha != 0 && selected_head_avatar_index > -1 && boxid >= start_index && boxid < start_index + n_gaussians) {
 		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
 		vec3 closest_point = cam_pos + projection * ray_direction;
 		float distance = length(g_pos.xyz - closest_point);
@@ -258,7 +259,7 @@ void main()
 		}
 	}
 
-	if (keep_sh == 0 && coloring_mode == 1 && alpha != 0 && selected_head_avatar_index > -1 && int(boxid / N_GAUSSIANS) == selected_head_avatar_index) {
+	if (keep_sh == 0 && coloring_mode == 1 && alpha != 0 && selected_head_avatar_index > -1 && boxid >= start_index && boxid < start_index + n_gaussians) {
 		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
 		vec3 closest_point = cam_pos + projection * ray_direction;
 		float distance = length(g_pos.xyz - closest_point);

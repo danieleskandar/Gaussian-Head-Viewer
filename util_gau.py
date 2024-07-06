@@ -151,8 +151,13 @@ def load_ply(path):
     # Concatenate directional coefficients and additional features to form final spherical harmonics 
     shs = np.concatenate([features_dc.reshape(-1, 3), features_extra.reshape(len(features_dc), -1)], axis=-1).astype(np.float32)
     shs = shs.astype(np.float32)
+
+    if "n_strands" in plydata['vertex'].data.dtype.names:
+        head_avatar_constants = (plydata.elements[0]["n_strands"][0], plydata.elements[0]["n_gaussians_per_strand"][0])
+    else:
+        head_avatar_constants = (0, 0)
     
-    return GaussianData(xyz, rots, scales, opacities, shs)
+    return GaussianData(xyz, rots, scales, opacities, shs), head_avatar_constants
 
 def load_input_ply(path):
     plydata = PlyData.read(path)
