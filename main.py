@@ -500,7 +500,8 @@ def update_means(head_avatar_index):
     # And the case where there's zero frequency or amplitude
     if (g_hair_points[i].shape[0] != 0  and 
         len(g_wave_amplitude)*len(g_wave_frequency)!=0 and g_wave_frequency[i]*g_wave_amplitude[i]!=0):
-        points = g_hair_points[i] + d
+        points = np.copy(g_hair_points[i])
+        points[:,:,0] += d
         
         global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
         new_points = points+global_nudging
