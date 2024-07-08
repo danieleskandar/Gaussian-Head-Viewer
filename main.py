@@ -26,10 +26,10 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 g_camera = util.Camera(720, 1280)
 BACKEND_OGL=0
-BACKEND_CUDA=1
-BACKEND_OGL_AXES=2
+BACKEND_OGL_AXES=1
+BACKEND_CUDA=2
 g_renderer_list = [
-    None, None, None # ogl, cuda, ogl_axes
+    None, None
 ]
 g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
@@ -961,7 +961,7 @@ def main():
         if g_show_control_win:
             if imgui.begin("Control", True):
                 # rendering backend
-                changed, g_renderer_idx = imgui.combo("backend", g_renderer_idx, ["ogl", "cuda", "ogl_axes"][:len(g_renderer_list)])
+                changed, g_renderer_idx = imgui.combo("backend", g_renderer_idx, ["ogl", "axes", "cuda"][:len(g_renderer_list)])
                 if changed:
                     g_renderer = g_renderer_list[g_renderer_idx]
                     update_activated_renderer_state(gaussians)
