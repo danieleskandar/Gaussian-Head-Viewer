@@ -177,7 +177,7 @@ def export_head_avatar(file_path):
     start = get_start_index(i)
     max_sh_degree = 3
 
-    xyz = np.copy(g_head_avatars[i].xyz)
+    xyz = np.copy(gaussians.xyz[start:start+g_n_gaussians[i], :]) - np.array([get_displacement(i), 0, 0])
     rot = np.copy(gaussians.rot[start:start+g_n_gaussians[i], :])
     scale = np.copy(gaussians.scale[start:start+g_n_gaussians[i], :])
     opacity = np.copy(gaussians.opacity[start:start+g_n_gaussians[i], :])
