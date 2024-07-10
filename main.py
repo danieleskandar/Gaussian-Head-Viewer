@@ -67,6 +67,7 @@ g_show_head_avatars_win = True
 g_checkboxes = []
 g_head_avatars = []
 g_folder_paths = []
+g_frame_folder = []
 g_file_paths = []
 g_n_gaussians = []
 g_n_strands = []
@@ -120,6 +121,7 @@ def open_head_avatar_ply():
             g_means.append(np.mean(head_avatar.xyz, axis=0))
             g_max_distance.append(np.max(np.linalg.norm(head_avatar.xyz - g_means[-1], axis=1)))
             g_folder_paths.append(file_path.rsplit('/', 1)[0])
+            g_frame_folder.append(g_folder_paths[-1] + "/320_to_320")
             g_file_paths.append(file_path)
             g_n_gaussians.append(head_avatar.xyz.shape[0])
             g_n_strands.append(head_avatar_constants[0])
@@ -478,7 +480,9 @@ def update_hair_scale():
 def update_frame():
     i = g_selected_head_avatar_index
     start = get_start_index(i)
-    _, rot = get_frame(i)
+    xyz, rot = get_frame(i)
+    g_head_avatars[i].xyz[:g_n_hair_gaussians[i]] = xyz
+    g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = rot
     gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot
     update_means(i)
 
@@ -594,8 +598,8 @@ def get_frame(head_avatar_index):
     i = head_avatar_index
     if g_frame[i] > 0:
         try:
-            xyz = np.load(f"{g_folder_paths[i]}/320_to_320/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-            rot = np.load(f"{g_folder_paths[i]}/320_to_320/frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
+            xyz = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
+            rot = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
             rot = TNB2qvecs(rot[:,:,0], rot[:,:,1], rot[:,:,2]).reshape(-1,4)
             _, _, scale, _, _ = g_head_avatars[i].get_data()
             hair_points, hair_normals = get_hair_points(xyz, rot, scale, g_n_strands[i], g_n_gaussians_per_strand[i], g_n_hair_gaussians[i])
@@ -1260,10 +1264,18 @@ def main():
                     update_means(g_selected_head_avatar_index)
                     g_renderer.update_gaussian_data(gaussians) 
 
-                changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 98, "Frame = %d")
+                changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
                 if changed:
                     update_frame()
-                    g_renderer.update_gaussian_data(gaussians)     
+                    g_renderer.update_gaussian_data(gaussians)
+
+                imgui.same_line()
+
+                if imgui.button(label='Select Frames Folder'):
+                    g_frame_folder[g_selected_head_avatar_index] = filedialog.askdirectory(
+                        title="Select Folder",
+                        initialdir="./models/"
+                    )
 
                 if imgui.button(label='Export'):
                     file_path = filedialog.asksaveasfilename(
