@@ -12,7 +12,7 @@ import os
 import sys
 import argparse
 import time
-from frenet_arcle import parallel_calculate_quats, calculate_rot_quat, calculate_pts_scal, rotmats2qvecs
+from frenet_arcle import *
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 from plyfile import PlyData, PlyElement
 
@@ -26,10 +26,9 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 g_camera = util.Camera(720, 1280)
 BACKEND_OGL=0
-BACKEND_CUDA=1
-BACKEND_OGL_AXES=2
+BACKEND_OGL_AXES=1
 g_renderer_list = [
-    None, None, None # ogl, cuda, ogl_axes
+    None, None
 ]
 g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
@@ -104,7 +103,7 @@ g_gaussian_strand_index = "None"
 # Head Avatars Actions
 ######################
 def open_head_avatar_ply():
-    global gaussians, N_GAUSSIANS, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians
+    global gaussians, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians
 
     file_path = filedialog.askopenfilename(
         title="open ply",
@@ -510,7 +509,7 @@ def update_means(head_avatar_index):
         # New gaussians from new points either from file or calculated on the spot
         try:
             path = util.find_closest_file(g_wave_amplitude[i], g_wave_frequency[i], f"{g_folder_paths[i]}/rots/")
-            rot = np.load(path)
+            rot = np.load(path)[:g_n_strands[i], :g_n_gaussians_per_strand[i]]
 
         except FileNotFoundError:
             rot = calculate_rot_quat(new_points)
@@ -597,7 +596,7 @@ def get_frame(head_avatar_index):
         try:
             xyz = np.load(f"{g_folder_paths[i]}/320_to_320/frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
             rot = np.load(f"{g_folder_paths[i]}/320_to_320/frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
-            rot = rotmats2qvecs(rot).reshape(-1,4)
+            rot = TNB2qvecs(rot[:,:,0], rot[:,:,1], rot[:,:,2]).reshape(-1,4)
             _, _, scale, _, _ = g_head_avatars[i].get_data()
             hair_points, hair_normals = get_hair_points(xyz, rot, scale, g_n_strands[i], g_n_gaussians_per_strand[i], g_n_hair_gaussians[i])
             g_hair_points[i] = hair_points
@@ -899,14 +898,6 @@ def main():
     # init renderer
     g_renderer_list[BACKEND_OGL] = OpenGLRenderer(g_camera.w, g_camera.h)
     g_renderer_list[BACKEND_OGL_AXES] = OpenGLRendererAxes(g_camera.w, g_camera.h)
-    try:
-        from renderer_cuda import CUDARenderer
-        g_renderer_list += [CUDARenderer(g_camera.w, g_camera.h)]
-    except ImportError:
-        g_renderer_idx = BACKEND_OGL
-    else:
-        g_renderer_idx = BACKEND_CUDA
-
     g_renderer = g_renderer_list[g_renderer_idx]
 
     # gaussian data
@@ -961,7 +952,7 @@ def main():
         if g_show_control_win:
             if imgui.begin("Control", True):
                 # rendering backend
-                changed, g_renderer_idx = imgui.combo("backend", g_renderer_idx, ["ogl", "cuda", "ogl_axes"][:len(g_renderer_list)])
+                changed, g_renderer_idx = imgui.combo("backend", g_renderer_idx, ["ogl", "axes"][:len(g_renderer_list)])
                 if changed:
                     g_renderer = g_renderer_list[g_renderer_idx]
                     update_activated_renderer_state(gaussians)

@@ -4,6 +4,8 @@ import numpy as np
 import glm
 import ctypes
 import os
+from plyfile import PlyData, PlyElement
+import argparse
 
 class Camera:
     def __init__(self, h, w):
@@ -384,3 +386,47 @@ def find_closest_file(target_amp, target_freq, base_directory):
     # Construct and return the full path
     full_path = os.path.join(base_directory, closest_amp_dir, closest_freq_file)
     return full_path
+
+# Taken from https://stackoverflow.com/a/5356645
+def join_struct_arrays(arrays):
+    newdtype = sum((a.dtype.descr for a in arrays), [])
+    newrecarray = np.empty(len(arrays[0]), dtype = newdtype)
+    for a in arrays:
+        for name in a.dtype.names:
+            newrecarray[name] = a[name]
+    return newrecarray
+
+def main(args):
+    # Read the PLY data
+    plydata = PlyData.read(args.path)
+    vertices = plydata.elements[0].data
+
+    # Check if the attributes already exist
+    if "n_strands" not in vertices.dtype.names:
+        # Add the attributes
+        new_fields = [('n_strands', 'i4'), ('n_gaussians_per_strand', 'i4')]
+        vertices = join_struct_arrays([vertices, np.zeros(len(vertices), new_fields)])
+
+    # Update the attributes
+    vertices[0]['n_strands'] = args.n_strands
+    vertices[0]['n_gaussians_per_strand'] = args.n_gaussians_per_strand
+    updated_data = np.array(vertices, dtype=vertices.dtype)
+    
+    new_element = PlyElement.describe(updated_data, 'vertex')
+
+    # Write the updated plydata to a new file (or overwrite the existing file)
+    updated_path = args.path.replace(".ply", "_updated.ply")
+    PlyData([new_element]).write(updated_path)
+
+    return 0
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(conflict_handler='resolve')
+    parser.add_argument('path', type=str)
+    parser.add_argument('--n_strands', default=12000, type=int)
+    parser.add_argument('--n_gaussians_per_strand', default=31, type=int)
+
+    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
+
+    main(args)

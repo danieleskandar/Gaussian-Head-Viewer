@@ -29,10 +29,20 @@ layout (std430, binding=1) buffer gaussian_order {
 
 uniform mat4 view_matrix;
 uniform mat4 projection_matrix;
+uniform vec3 cam_pos;
 uniform int sh_dim;
 uniform float scale_modifier;
+uniform int render_mod;
+
+uniform int start_index;
+uniform int n_hair_gaussians;
+uniform int cutting_mode;
+uniform float max_cutting_distance;
+uniform int selected_head_avatar_index;
+uniform vec3 ray_direction;
 
 out vec3 color;
+out float alpha;
 
 mat3 computeSR(vec3 scale, vec4 q)  // should be correct
 {
@@ -74,22 +84,43 @@ void main()
     vec4 g_pos_screen = projection_matrix * g_pos_view;
 	g_pos_screen.xyz = g_pos_screen.xyz / g_pos_screen.w;
     g_pos_screen.w = 1.f;
+	float g_opacity = g_data[start + OPACITY_IDX];
 	// early culling
-	if (any(greaterThan(abs(g_pos_screen.xyz), vec3(1.3))))
+	if (any(greaterThan(abs(g_pos_screen.xyz), vec3(1.3))) || g_opacity == 0.f)
 	{
 		gl_Position = vec4(-100, -100, -100, 1);
 		return;
 	}
 	vec4 g_rot = get_vec4(start + ROT_IDX);
 	vec3 g_scale = get_vec3(start + SCALE_IDX);
-	float g_opacity = g_data[start + OPACITY_IDX];
 
 	mat3 M = computeSR(g_scale * scale_modifier, g_rot);
 	vec4 second_point = vec4(lines*M + g_pos.xyz, 1.f);
 	vec4 second_point_view = view_matrix * second_point;
 	vec4 second_point_screen = projection_matrix * second_point_view;
-	// second_point_screen.xyz = second_point_screen.xyz / second_point_screen.w;
-	// second_point_screen.w = 1.f;
 	gl_Position = second_point_screen;
 	color = abs(lines);
+	alpha = 1.;
+
+	if (render_mod == -5)
+	{
+		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
+		vec3 closest_point = cam_pos + projection * ray_direction;
+		float distance = length(g_pos.xyz - closest_point);
+		alpha = distance < 0.2 ? 1 : 0.2;
+	}
+
+	if (cutting_mode == 1 && selected_head_avatar_index > -1 && boxid >= start_index && boxid < start_index + n_hair_gaussians) {	
+		float projection = dot(ray_direction, g_pos.xyz-cam_pos);
+		vec3 closest_point = cam_pos + projection * ray_direction;
+		float distance = length(g_pos.xyz - closest_point);
+		alpha = distance < max_cutting_distance ? 0 : 1;
+	}
+
+	if (render_mod == -1)
+	{
+		float depth = -g_pos_view.z;
+		depth = depth < 0.05 ? 1 : depth;
+		alpha = 1 / depth;
+	}
 }
