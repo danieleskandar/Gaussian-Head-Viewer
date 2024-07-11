@@ -35,7 +35,7 @@ g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_auto_sort = True
 g_show_control_win = True
-g_show_help_win = False
+g_show_help_win = True
 g_show_camera_win = False
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
@@ -1082,7 +1082,12 @@ def main():
             imgui.text("Use right click & move to translate camera")
             imgui.text("Press Q/E to roll camera")
             imgui.text("Use scroll to zoom in/out")
-            imgui.text("Use control panel to change setting")
+            imgui.text("Use control panel to change setting \n")
+            imgui.text("\n")
+            imgui.text("Open Gaussian Splatting Head PLY file \n  by click 'open head avatar ply' button")
+            imgui.text("Left click on avatar to select and show its \n Head Avatar Controller window")
+            imgui.text("In coloring and cutting hair mode, \n right click to color model or cut hair")
+            imgui.text("Use Head Avatar Controller to cut hair, \n color model, change hair frequency and \n amplitude, select frame, and export \n modified model")
             imgui.end()
 
         # Head Avatars Window
