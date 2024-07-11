@@ -490,7 +490,7 @@ def update_means(head_avatar_index):
     i = head_avatar_index
     start = get_start_index(i)
 
-    xyz, _, _, _, _ = g_head_avatars[i].get_data()
+    xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
     gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
 
     f, _ = get_frame(i)
@@ -498,6 +498,9 @@ def update_means(head_avatar_index):
 
     d = get_displacement(i)
     gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
+
+    gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
+    gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
 
     # Handling case for which there are no hair strands. Able to open a generic gaussian ply
     # And the case where there's zero frequency or amplitude
@@ -596,18 +599,15 @@ def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
 
 def get_frame(head_avatar_index):
     i = head_avatar_index
-    if g_frame[i] > 0:
-        try:
-            xyz = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-            rot = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
-            rot = TNB2qvecs(rot[:,:,0], rot[:,:,1], rot[:,:,2]).reshape(-1,4)
-            _, _, scale, _, _ = g_head_avatars[i].get_data()
-            hair_points, hair_normals = get_hair_points(xyz, rot, scale, g_n_strands[i], g_n_gaussians_per_strand[i], g_n_hair_gaussians[i])
-            g_hair_points[i] = hair_points
-            g_hair_normals[i] = hair_normals
-        except Exception as e:
-            xyz, rot, _, _, _ = g_head_avatars[i].get_data()
-    else:
+    try:
+        xyz = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
+        rot = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
+        rot = TNB2qvecs(rot[:,:,0], rot[:,:,1], rot[:,:,2]).reshape(-1,4)
+        _, _, scale, _, _ = g_head_avatars[i].get_data()
+        hair_points, hair_normals = get_hair_points(xyz, rot, scale, g_n_strands[i], g_n_gaussians_per_strand[i], g_n_hair_gaussians[i])
+        g_hair_points[i] = hair_points
+        g_hair_normals[i] = hair_normals
+    except Exception as e:
         xyz, rot, _, _, _ = g_head_avatars[i].get_data()
     return xyz[:g_n_hair_gaussians[i], :].astype(np.float32), rot[:g_n_hair_gaussians[i], :].astype(np.float32)
 
