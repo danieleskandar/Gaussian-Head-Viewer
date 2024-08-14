@@ -39,6 +39,7 @@ g_show_help_win = True
 g_show_camera_win = False
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
+g_file_path = "Default Naive 4 Gaussian"
 
 ###########
 # Constants
@@ -877,7 +878,8 @@ def main():
     # Head Avatars Global Variables
     global gaussians, g_show_head_avatars_win, g_checkboxes, g_cutting_mode, \
         g_coloring_mode, g_keep_sh, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_x_min, g_x_max, g_x_plane, g_invert_x_plane, \
-         g_y_min, g_y_max, g_y_plane, g_invert_y_plane, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, g_hair_points, g_hair_normals
+        g_y_min, g_y_max, g_y_plane, g_invert_y_plane, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, g_hair_points, g_hair_normals, g_file_paths, \
+        g_file_path
 
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
@@ -978,6 +980,12 @@ def main():
                             g_renderer.sort_and_update(g_camera)
                         except RuntimeError as e:
                             pass
+                    g_file_path = file_path
+                
+                if len(g_file_paths) == 0:
+                    imgui.text(f"Path of selected gaussian: \n {g_file_path}")
+                else: 
+                    imgui.text(f"Path of selected gaussian: \n {g_file_paths[g_selected_head_avatar_index]}")
                 
                 # camera fov
                 changed, g_camera.fovy = imgui.slider_float(
@@ -1076,23 +1084,23 @@ def main():
                 g_camera.roll_sensitivity = 0.03
 
         if g_show_help_win:
-            imgui.begin("Help", True)
+            imgui.begin("General help", True)
             imgui.text("Open Gaussian Splatting PLY file \n  by click 'open ply' button")
             imgui.text("Use left click & move to rotate camera")
             imgui.text("Use right click & move to translate camera")
             imgui.text("Press Q/E to roll camera")
             imgui.text("Use scroll to zoom in/out")
             imgui.text("Use control panel to change setting \n")
-            imgui.text("\n")
-            imgui.text("Open Gaussian Splatting Head PLY file \n  by click 'open head avatar ply' button")
-            imgui.text("Left click on avatar to select and show its \n Head Avatar Controller window")
-            imgui.text("In coloring and cutting hair mode, \n right click to color model or cut hair")
-            imgui.text("Use Head Avatar Controller to cut hair, \n color model, change hair frequency and \n amplitude, select frame, and export \n modified model")
             imgui.end()
 
         # Head Avatars Window
         if g_show_head_avatars_win:
-            imgui.begin("Head Avatars", True)
+            imgui.begin("Head Avatars: Help and selection", True)
+
+            imgui.text("Open Gaussian Splatting Head PLY file \n  by click 'open head avatar ply' button")
+            imgui.text("Left click on avatar to select and show its \n Head Avatar Controller window")
+            imgui.text("In coloring and cutting hair mode, \n right click to color model or cut hair")
+            imgui.text("Use Head Avatar Controller to cut hair, \n color model, change hair frequency and \n amplitude, select frame, and export \n modified model")
 
             # Load Head avatar button
             if imgui.button(label='open head avatar ply'):
@@ -1103,7 +1111,7 @@ def main():
                 
             # Display Head Avatar Checkboxes
             for i in range(len(g_head_avatars)):
-                changed, g_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1}", g_checkboxes[i])
+                changed, g_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1} with path: \n {g_file_paths[i]}", g_checkboxes[i])
                 if changed:
                     if not g_checkboxes[i] and i == g_selected_head_avatar_index:
                         g_selected_head_avatar_index = -1
@@ -1281,6 +1289,8 @@ def main():
                         title="Select Folder",
                         initialdir="./models/"
                     )
+                
+                imgui.text(f"Selected Frames Folder: {g_frame_folder[g_selected_head_avatar_index]}")
 
                 if imgui.button(label='Export'):
                     file_path = filedialog.asksaveasfilename(
