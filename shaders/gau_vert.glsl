@@ -196,7 +196,7 @@ void main()
 		alpha = distance < max_cutting_distance ? 0 : alpha;
 	}
 
-	if (coloring_mode == 1 && selected_head_avatar_index > -1 && boxid >= start_index && boxid < (start_index + n_gaussians)) {
+	if (selected_head_avatar_index > -1 && boxid >= start_index && boxid < (start_index + n_gaussians)) {
 		if (invert_x_plane == 0 && g_pos.x >= x_plane) alpha = 0;
 		if (invert_x_plane == 1 && g_pos.x <= x_plane) alpha = 0;
 		if (invert_y_plane == 0 && g_pos.y >= y_plane) alpha = 0;

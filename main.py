@@ -36,7 +36,7 @@ g_scale_modifier = 1.
 g_auto_sort = True
 g_show_control_win = True
 g_show_help_win = True
-g_show_camera_win = False
+g_show_camera_win = True
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
 g_file_path = "Default Naive 4 Gaussian"
@@ -96,6 +96,7 @@ g_z_plane = []
 g_z_plane_max = []
 g_z_plane_min = []
 g_invert_z_plane = []
+g_hair_styles = []
 
 g_strand_index = "None"
 g_gaussian_index = "None"
@@ -122,7 +123,7 @@ def open_head_avatar_ply():
             g_means.append(np.mean(head_avatar.xyz, axis=0))
             g_max_distance.append(np.max(np.linalg.norm(head_avatar.xyz - g_means[-1], axis=1)))
             g_folder_paths.append(file_path.rsplit('/', 1)[0])
-            g_frame_folder.append(g_folder_paths[-1] + "/320_to_320")
+            g_frame_folder.append("")
             g_file_paths.append(file_path)
             g_n_gaussians.append(head_avatar.xyz.shape[0])
             g_n_strands.append(head_avatar_constants[0])
@@ -154,6 +155,8 @@ def open_head_avatar_ply():
             g_z_plane_max.append(np.max(head_avatar.xyz[:, 2]))
             g_z_plane_min.append(np.min(head_avatar.xyz[:, 2]))
             g_invert_z_plane.append(False)
+            g_selected_hair_style.append(len(g_selected_hair_style))
+            g_hair_styles.append("Head Avatar " + str(len(g_selected_hair_style)))
             
             if len(g_head_avatars) == 1:
                 # Append head avatar to the gaussians object sent to the shader
@@ -284,6 +287,7 @@ g_hair_scale = []
 g_wave_frequency = []
 g_wave_amplitude = []
 g_frame = []
+g_selected_hair_style = []
 
 ################################
 # Head Avatar Controller Actions
@@ -919,6 +923,9 @@ def main():
 
     # maximize window
     glfw.maximize_window(window)
+
+    # Initialize positions and sizes of windows
+    init_positions_and_sizes = True
     
     # settings
     while not glfw.window_should_close(window):
@@ -940,18 +947,33 @@ def main():
                 clicked, g_show_control_win = imgui.menu_item(
                     "Show Control", None, g_show_control_win
                 )
+                if clicked and g_show_control_win:
+                    imgui.set_window_position_labeled("Control", 1420, 25)
+                    imgui.set_window_size_named("Control", 495, 265)
                 clicked, g_show_help_win = imgui.menu_item(
                     "Show Help", None, g_show_help_win
                 )
+                if clicked and g_show_help_win:
+                    imgui.set_window_position_labeled("General help", 1420, 295)
+                    imgui.set_window_size_named("General help", 495, 635)
                 clicked, g_show_camera_win = imgui.menu_item(
                     "Show Camera Control", None, g_show_camera_win
                 )
+                if clicked and g_show_camera_win:
+                    imgui.set_window_position_labeled("Debug", 1420, 935)
+                    imgui.set_window_size_named("Debug", 495, 170)
                 clicked, g_show_head_avatars_win = imgui.menu_item(
                     "Show Head Avatars", None, g_show_head_avatars_win
                 )
+                if clicked and g_show_head_avatars_win:
+                    imgui.set_window_position_labeled("Head Avatars", 5, 850)
+                    imgui.set_window_size_named("Head Avatars", 880, 255)
                 clicked, g_show_head_avatar_controller_win = imgui.menu_item(
                     "Show Head Avatar Controller", None, g_show_head_avatar_controller_win
                 )
+                if clicked and g_show_head_avatar_controller_win:
+                    imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
+                    imgui.set_window_size_named("Head Avatar Controller", 880, 820)
                 imgui.end_menu()
             imgui.end_main_menu_bar()
         
@@ -983,9 +1005,9 @@ def main():
                     g_file_path = file_path
                 
                 if len(g_file_paths) == 0:
-                    imgui.text(f"Path of selected gaussian: \n {g_file_path}")
+                    imgui.text(f"Path of selected gaussian: {g_file_path}")
                 else: 
-                    imgui.text(f"Path of selected gaussian: \n {g_file_paths[g_selected_head_avatar_index]}")
+                    imgui.text(f"Path of selected gaussian: {g_file_paths[g_selected_head_avatar_index]}")
                 
                 # camera fov
                 changed, g_camera.fovy = imgui.slider_float(
@@ -1046,6 +1068,8 @@ def main():
                 imgui.end()
 
         if g_show_camera_win:
+            imgui.begin("Debug", True)
+
             if imgui.button(label='rot 180'):
                 g_camera.flip_ground()
 
@@ -1083,24 +1107,58 @@ def main():
             if imgui.button(label="reset ro"):
                 g_camera.roll_sensitivity = 0.03
 
+            imgui.end()
+
         if g_show_help_win:
             imgui.begin("General help", True)
-            imgui.text("Open Gaussian Splatting PLY file \n  by click 'open ply' button")
-            imgui.text("Use left click & move to rotate camera")
-            imgui.text("Use right click & move to translate camera")
-            imgui.text("Press Q/E to roll camera")
-            imgui.text("Use scroll to zoom in/out")
-            imgui.text("Use control panel to change setting \n")
+            imgui.separator()
+            imgui.text("Overview")
+            imgui.separator()
+            imgui.text("- 3D Gaussian Splatting visualization tool.")
+            imgui.text("- Manipulate camera, render, and adjust settings.")
+            imgui.text("- Edit and render head avatars with dedicated tools.")
+            imgui.text("")
+            imgui.separator()
+            imgui.text("Control Window")
+            imgui.separator()
+            imgui.text("- Use 'Open PLY' to load PLY files (except head avatars).")
+            imgui.text("- Adjust shading, Gaussian scale, and sorting options.")
+            imgui.text("- Backend: 'OGL' for rendering and 'axes' to visualize rotations.")
+            imgui.text("")
+            imgui.separator()
+            imgui.text("Camera Control and Debug Window:")
+            imgui.separator()
+            imgui.text("- Left click and drag to rotate.")
+            imgui.text("- Right click and drag to translate.")
+            imgui.text("- Use Q/E keys to roll.")
+            imgui.text("- Scroll to zoom.")
+            imgui.text("- Adjust camera control sensitivities from debug window.")
+            imgui.text("")
+            imgui.separator()
+            imgui.text("Head Avatars Window")
+            imgui.separator()
+            imgui.text("- Use 'open head avatar ply' to load a head avatar.")
+            imgui.text("- Toggle avatar visibility with checkboxes.")
+            imgui.text("")
+            imgui.separator()
+            imgui.text("Head Avatar Controller Window")
+            imgui.separator()
+            imgui.text("- View selected avatars/Gaussians under 'Selected Info'.")
+            imgui.text("- Show/hide head or hair.")
+            imgui.text("- Use X/Y/Z sliders to slice.")
+            imgui.text("- Quick segment by changing head/hair Gaussian colors.")
+            imgui.text("- Adjust hair scale, wave frequency, and amplitude.")
+            imgui.text("- Cutting mode: right-click to cut hair.")
+            imgui.text("- Coloring mode: left-click to pick color, right-click to apply.")
+            imgui.text("- Load animation from folder; use slider for frames.")
+            imgui.text("- Apply hairstyle from another avatar/folder.")
+            imgui.text("- Export avatar as PLY file.")
+            imgui.text("")
             imgui.end()
 
         # Head Avatars Window
         if g_show_head_avatars_win:
-            imgui.begin("Head Avatars: Help and selection", True)
-
-            imgui.text("Open Gaussian Splatting Head PLY file \n  by click 'open head avatar ply' button")
-            imgui.text("Left click on avatar to select and show its \n Head Avatar Controller window")
-            imgui.text("In coloring and cutting hair mode, \n right click to color model or cut hair")
-            imgui.text("Use Head Avatar Controller to cut hair, \n color model, change hair frequency and \n amplitude, select frame, and export \n modified model")
+            imgui.begin("Head Avatars", True)
 
             # Load Head avatar button
             if imgui.button(label='open head avatar ply'):
@@ -1108,10 +1166,12 @@ def main():
                 update_displacements_and_opacities()
                 select_head_avatar(len(g_head_avatars) - 1)
                 g_renderer.update_gaussian_data(gaussians)
+
+            imgui.separator()
                 
             # Display Head Avatar Checkboxes
             for i in range(len(g_head_avatars)):
-                changed, g_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1} with path: \n {g_file_paths[i]}", g_checkboxes[i])
+                changed, g_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1} ({g_file_paths[i]})", g_checkboxes[i])
                 if changed:
                     if not g_checkboxes[i] and i == g_selected_head_avatar_index:
                         g_selected_head_avatar_index = -1
@@ -1127,7 +1187,11 @@ def main():
         if g_show_head_avatar_controller_win:
             imgui.begin("Head Avatar Controller", True)
 
-            imgui.text(f"Selected: {g_selected_head_avatar_name}")
+            imgui.separator()
+            imgui.text("SELECTION INFO")
+            imgui.separator()
+
+            imgui.text(f"Selected Avatar: {g_selected_head_avatar_name}")
 
             if g_selected_head_avatar_index != -1:
                 i = g_selected_head_avatar_index
@@ -1135,41 +1199,23 @@ def main():
                 imgui.text(f"Selected Gaussian Index: {g_gaussian_index}")
                 imgui.text(f"Selected Strand Index: {g_strand_index}")                
                 imgui.text(f"Selected Gaussian Index (Relative to Strand): {g_gaussian_strand_index}")
+                imgui.text(f"Selected Avatar Path: {g_file_paths[i]}")
 
-                changed, g_cutting_mode = imgui.checkbox("Cutting Mode", g_cutting_mode)
+                imgui.separator()
+                imgui.text("VISIBILITY")
+                imgui.separator()
+
+                changed, g_show_hair[i] = imgui.checkbox("Show Hair", g_show_hair[i])
                 if changed:
-                    g_coloring_mode = False
-                    g_renderer.update_cutting_mode(g_cutting_mode)
-                    g_renderer.update_coloring_mode(g_coloring_mode)              
-
-                changed, g_max_cutting_distance = imgui.slider_float("Cutting Area", g_max_cutting_distance, 0.01, 0.5, "%.2f")
-                if changed:
-                    g_renderer.update_max_cutting_distance(g_max_cutting_distance)
-
-                if imgui.button(label="Reset Hair Style"):
-                    reset_cut()
-                    update_means(g_selected_head_avatar_index)
+                    update_hair_opacity()
                     g_renderer.update_gaussian_data(gaussians)
-
-                changed, g_coloring_mode = imgui.checkbox("Coloring Mode", g_coloring_mode)
-                if changed:
-                    g_cutting_mode = False
-                    g_renderer.update_cutting_mode(g_cutting_mode)
-                    g_renderer.update_coloring_mode(g_coloring_mode)
 
                 imgui.same_line()
 
-                changed, g_keep_sh = imgui.checkbox("Keep Simple Harmonics", g_keep_sh)
+                changed, g_show_head[i] = imgui.checkbox("Show Head", g_show_head[i])
                 if changed:
-                    g_renderer.update_keep_sh(g_keep_sh)
-
-                changed, g_selected_color = imgui.color_edit3("Selected Color", *g_selected_color)
-                if changed:
-                    g_renderer.update_selected_color(g_selected_color)
-
-                changed, g_max_coloring_distance = imgui.slider_float("Coloring Area", g_max_coloring_distance, 0.01, 0.5, "%.2f")
-                if changed:
-                    g_renderer.update_max_coloring_distance(g_max_coloring_distance) 
+                    update_head_opacity()
+                    g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_x_plane[g_selected_head_avatar_index] = imgui.slider_float("X-Plane", g_x_plane[g_selected_head_avatar_index], g_x_plane_min[g_selected_head_avatar_index], g_x_plane_max[g_selected_head_avatar_index], "x = %.3f")
                 if changed:
@@ -1201,21 +1247,9 @@ def main():
                 if changed:
                     g_renderer.update_invert_z_plane(g_invert_z_plane[g_selected_head_avatar_index])
 
-                if imgui.button(label="Reset Colors"):
-                    reset_coloring()
-                    g_renderer.update_gaussian_data(gaussians)
-
-                changed, g_show_hair[i] = imgui.checkbox("Show Hair", g_show_hair[i])
-                if changed:
-                    update_hair_opacity()
-                    g_renderer.update_gaussian_data(gaussians)
-
-                imgui.same_line()
-
-                changed, g_show_head[i] = imgui.checkbox("Show Head", g_show_head[i])
-                if changed:
-                    update_head_opacity()
-                    g_renderer.update_gaussian_data(gaussians)
+                imgui.separator()
+                imgui.text("QUICK SEGMENTATION")
+                imgui.separator()
 
                 changed, g_hair_color[i] = imgui.color_edit3("Hair Color", *g_hair_color[i])
                 if changed:
@@ -1240,6 +1274,10 @@ def main():
                 if changed:
                     update_head_color()
                     g_renderer.update_gaussian_data(gaussians)
+
+                imgui.separator()
+                imgui.text("HAIR SCALING & WAVES")
+                imgui.separator()
 
                 changed, g_hair_scale[i] = imgui.slider_float("Hair Scale", g_hair_scale[i], 0.5, 2, "Hair Scale = %.3f")
                 if changed:
@@ -1272,10 +1310,61 @@ def main():
 
                 imgui.same_line()
 
-                if imgui.button(label="Reset Wave Height"):
+                if imgui.button(label="Reset Wave Amplitude"):
                     g_wave_amplitude[i] = 0
                     update_means(g_selected_head_avatar_index)
-                    g_renderer.update_gaussian_data(gaussians) 
+                    g_renderer.update_gaussian_data(gaussians)
+
+                imgui.separator()
+                imgui.text("HAIR CUTTING SETTINGS")
+                imgui.separator()
+
+                changed, g_cutting_mode = imgui.checkbox("Cutting Mode", g_cutting_mode)
+                if changed:
+                    g_coloring_mode = False
+                    g_renderer.update_cutting_mode(g_cutting_mode)
+                    g_renderer.update_coloring_mode(g_coloring_mode)              
+
+                changed, g_max_cutting_distance = imgui.slider_float("Cutting Area", g_max_cutting_distance, 0.01, 0.5, "%.2f")
+                if changed:
+                    g_renderer.update_max_cutting_distance(g_max_cutting_distance)
+
+                if imgui.button(label="Reset Cut"):
+                    reset_cut()
+                    update_means(g_selected_head_avatar_index)
+                    g_renderer.update_gaussian_data(gaussians)
+
+                imgui.separator()
+                imgui.text("COLORING SETTINGS")
+                imgui.separator()
+
+                changed, g_coloring_mode = imgui.checkbox("Coloring Mode", g_coloring_mode)
+                if changed:
+                    g_cutting_mode = False
+                    g_renderer.update_cutting_mode(g_cutting_mode)
+                    g_renderer.update_coloring_mode(g_coloring_mode)
+
+                imgui.same_line()
+
+                changed, g_keep_sh = imgui.checkbox("Keep Simple Harmonics", g_keep_sh)
+                if changed:
+                    g_renderer.update_keep_sh(g_keep_sh)
+
+                changed, g_selected_color = imgui.color_edit3("Selected Color", *g_selected_color)
+                if changed:
+                    g_renderer.update_selected_color(g_selected_color)
+
+                changed, g_max_coloring_distance = imgui.slider_float("Coloring Area", g_max_coloring_distance, 0.01, 0.5, "%.2f")
+                if changed:
+                    g_renderer.update_max_coloring_distance(g_max_coloring_distance) 
+
+                if imgui.button(label="Reset Colors"):
+                    reset_coloring()
+                    g_renderer.update_gaussian_data(gaussians)
+
+                imgui.separator()
+                imgui.text("FRAMES")
+                imgui.separator()
 
                 changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
                 if changed:
@@ -1292,7 +1381,26 @@ def main():
                 
                 imgui.text(f"Selected Frames Folder: {g_frame_folder[g_selected_head_avatar_index]}")
 
-                if imgui.button(label='Export'):
+                imgui.separator()
+                imgui.text("HAIRSTYLE")
+                imgui.separator()
+
+                changed, g_selected_hair_style[g_selected_head_avatar_index] = imgui.combo("Hairstyle", g_selected_hair_style[g_selected_head_avatar_index], g_hair_styles)
+                if changed:
+                    pass
+
+                imgui.same_line()
+
+                if imgui.button(label='Select Hairstyle Folder'):
+                    pass
+
+                imgui.text(f"Selected Hairstyle Folder: ")
+
+                imgui.separator()
+                imgui.text("EXPORT")
+                imgui.separator()
+
+                if imgui.button(label='Export Avatar'):
                     file_path = filedialog.asksaveasfilename(
                         title="Save ply",
                         initialdir=f"./models/",
@@ -1306,6 +1414,19 @@ def main():
                             print(f"An error occurred: {e}")
 
             imgui.end()
+
+            if init_positions_and_sizes:
+                imgui.set_window_position_labeled("Control", 1420, 25)
+                imgui.set_window_size_named("Control", 495, 265)
+                imgui.set_window_position_labeled("Debug", 1420, 935)
+                imgui.set_window_size_named("Debug", 495, 170)
+                imgui.set_window_position_labeled("General help", 1420, 295)
+                imgui.set_window_size_named("General help", 495, 635)
+                imgui.set_window_position_labeled("Head Avatars", 5, 850)
+                imgui.set_window_size_named("Head Avatars", 880, 255)
+                imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
+                imgui.set_window_size_named("Head Avatar Controller", 880, 820)
+                init_positions_and_sizes = False
         
         imgui.render()
         impl.render(imgui.get_draw_data())
