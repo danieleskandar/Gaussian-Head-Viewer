@@ -12,6 +12,7 @@ import os
 import sys
 import argparse
 import time
+import copy
 from frenet_arcle import *
 from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 from plyfile import PlyData, PlyElement
@@ -69,6 +70,7 @@ g_checkboxes = []
 g_head_avatars = []
 g_folder_paths = []
 g_frame_folder = []
+g_hairstyle_file = []
 g_file_paths = []
 g_n_gaussians = []
 g_n_strands = []
@@ -96,7 +98,7 @@ g_z_plane = []
 g_z_plane_max = []
 g_z_plane_min = []
 g_invert_z_plane = []
-g_hair_styles = []
+g_hairstyles = ["Original File", "Selected File"]
 
 g_strand_index = "None"
 g_gaussian_index = "None"
@@ -124,6 +126,7 @@ def open_head_avatar_ply():
             g_max_distance.append(np.max(np.linalg.norm(head_avatar.xyz - g_means[-1], axis=1)))
             g_folder_paths.append(file_path.rsplit('/', 1)[0])
             g_frame_folder.append("")
+            g_hairstyle_file.append("")
             g_file_paths.append(file_path)
             g_n_gaussians.append(head_avatar.xyz.shape[0])
             g_n_strands.append(head_avatar_constants[0])
@@ -155,8 +158,8 @@ def open_head_avatar_ply():
             g_z_plane_max.append(np.max(head_avatar.xyz[:, 2]))
             g_z_plane_min.append(np.min(head_avatar.xyz[:, 2]))
             g_invert_z_plane.append(False)
-            g_selected_hair_style.append(len(g_selected_hair_style))
-            g_hair_styles.append("Head Avatar " + str(len(g_selected_hair_style)))
+            g_selected_hairstyle.append(0)
+            g_hairstyles.append("Head Avatar " + str(len(g_selected_hairstyle)))
             
             if len(g_head_avatars) == 1:
                 # Append head avatar to the gaussians object sent to the shader
@@ -287,7 +290,7 @@ g_hair_scale = []
 g_wave_frequency = []
 g_wave_amplitude = []
 g_frame = []
-g_selected_hair_style = []
+g_selected_hairstyle = []
 
 ################################
 # Head Avatar Controller Actions
@@ -732,16 +735,89 @@ def reset_coloring():
     file_path = g_file_paths[g_selected_head_avatar_index]
     if file_path:
         try:
-            # Set opacity from original head avatar
-            head_avatar, _ = util_gau.load_ply(file_path)
-            _, _, _, _, color = head_avatar.get_data()
-            i = g_selected_head_avatar_index
-            start = get_start_index(i)
-            g_head_avatars[i].sh = color
-            gaussians.sh[start:start+g_n_gaussians[i], :] = color
-            update_hair_color()
+            head_avatar, n_strands, n_gaussians_per_strand = util_gau.load_ply(file_path)            
         except RuntimeError as e:
-                pass
+            pass
+
+def extract_hairstyle_from_file(file_path):
+    if file_path:
+        try:
+            head_avatar, (n_strands, n_gaussians_per_strand) = util_gau.load_ply(file_path)
+            n_hair_gaussians = n_strands * n_gaussians_per_strand
+            xyz, rot, scale, opacity, sh = head_avatar.get_data()
+            return (xyz[:n_hair_gaussians, :], rot[:n_hair_gaussians, :], scale[:n_hair_gaussians, :], opacity[:n_hair_gaussians, :], sh[:n_hair_gaussians, :]), (n_strands, n_gaussians_per_strand)
+        except RuntimeError as e:
+            return None, None
+
+def extract_hairstyle_from_avatar(j):
+    start = get_start_index(j)
+    n_strands, n_gaussians_per_strand = g_n_strands[j], g_n_gaussians_per_strand[j]
+    n_hair_gaussians = n_strands * n_gaussians_per_strand
+    xyz, rot, scale, opacity, sh = g_head_avatars[j].get_data()
+    xyz = xyz[:n_hair_gaussians, :]
+    rot = rot[:n_hair_gaussians, :]
+    scale = scale[:n_hair_gaussians, :]
+    opacity = opacity[:n_hair_gaussians, :]
+    sh = np.copy(gaussians.sh[start:start+n_hair_gaussians, :])
+    return (xyz, rot, scale, opacity, sh), (n_strands, n_gaussians_per_strand)
+
+def update_hairstyle(hairstyle_points, hairstyle_constants, j):
+    i = g_selected_head_avatar_index
+    start = get_start_index(i)
+
+    xyz, rot, scale, opacity, sh = hairstyle_points
+    n_strands, n_gaussians_per_strand = hairstyle_constants
+    n_hair_gaussians = n_strands * n_gaussians_per_strand
+
+    # Update gaussians sent to renderer
+    gaussians.xyz = np.vstack([gaussians.xyz[:start, :], xyz, gaussians.xyz[start+g_n_hair_gaussians[i]:, :]])
+    gaussians.rot = np.vstack([gaussians.rot[:start, :], rot, gaussians.rot[start+g_n_hair_gaussians[i]:, :]])
+    gaussians.scale = np.vstack([gaussians.scale[:start, :], scale, gaussians.scale[start+g_n_hair_gaussians[i]:, :]])
+    gaussians.opacity = np.vstack([gaussians.opacity[:start, :], opacity, gaussians.opacity[start+g_n_hair_gaussians[i]:, :]])
+    gaussians.sh = np.vstack([gaussians.sh[:start, :], sh, gaussians.sh[start+g_n_hair_gaussians[i]:, :]])
+
+    # Update gaussian object
+    g_head_avatars[i].xyz = np.vstack([xyz, g_head_avatars[i].xyz[g_n_hair_gaussians[i]:, :]])
+    g_head_avatars[i].rot = np.vstack([rot, g_head_avatars[i].rot[g_n_hair_gaussians[i]:, :]])
+    g_head_avatars[i].scale = np.vstack([scale, g_head_avatars[i].scale[g_n_hair_gaussians[i]:, :]])
+    g_head_avatars[i].opacity = np.vstack([opacity, g_head_avatars[i].opacity[g_n_hair_gaussians[i]:, :]])
+    g_head_avatars[i].sh = np.vstack([sh, g_head_avatars[i].sh[g_n_hair_gaussians[i]:, :]])
+
+    # Update properties
+    g_means[i] = np.mean(g_head_avatars[i].xyz, axis=0)
+    g_max_distance[i] = np.max(np.linalg.norm(g_head_avatars[i].xyz - g_means[i], axis=1))
+    g_n_gaussians[i] = g_head_avatars[i].xyz.shape[0]
+    g_n_strands[i] = n_strands
+    g_n_gaussians_per_strand[i] = n_gaussians_per_strand
+    g_n_hair_gaussians[i] = n_hair_gaussians
+    g_hair_points[i], g_hair_normals[i] = get_hair_points(g_head_avatars[i].xyz, g_head_avatars[i].rot, g_head_avatars[i].scale, n_strands, n_gaussians_per_strand, n_hair_gaussians)
+    g_hair_scale[i] = 1 if j == -1 else g_hair_scale[j]
+    g_wave_frequency[i] = 0 if j == -1 else g_wave_frequency[j]
+    g_wave_amplitude[i] = 0 if j == -1 else g_wave_amplitude[j]
+    g_x_plane[i] = np.max(g_head_avatars[i].xyz[:, 0])
+    g_x_plane_max[i] = np.max(g_head_avatars[i].xyz[:, 0])
+    g_x_plane_min[i] = np.min(g_head_avatars[i].xyz[:, 0])
+    g_y_plane[i] = np.max(g_head_avatars[i].xyz[:, 1])
+    g_y_plane_max[i] = np.max(g_head_avatars[i].xyz[:, 1])
+    g_y_plane_min[i] = np.min(g_head_avatars[i].xyz[:, 1])
+    g_z_plane[i] = np.max(g_head_avatars[i].xyz[:, 2])
+    g_z_plane_max[i] = np.max(g_head_avatars[i].xyz[:, 2])
+    g_z_plane_min[i] = np.min(g_head_avatars[i].xyz[:, 2])
+
+    # Update properties in renderer
+    g_renderer.update_start(get_start_index(g_selected_head_avatar_index))
+    g_renderer.update_n_gaussians(g_n_gaussians[g_selected_head_avatar_index])
+    g_renderer.update_n_hair_gaussians(g_n_hair_gaussians[g_selected_head_avatar_index])
+    
+    g_renderer.update_x_plane(g_x_plane[g_selected_head_avatar_index] + get_displacement(g_selected_head_avatar_index))
+    g_renderer.update_y_plane(g_y_plane[g_selected_head_avatar_index])
+    g_renderer.update_z_plane(g_z_plane[g_selected_head_avatar_index])
+    g_renderer.update_invert_x_plane(g_invert_x_plane[g_selected_head_avatar_index])
+    g_renderer.update_invert_y_plane(g_invert_y_plane[g_selected_head_avatar_index])
+    g_renderer.update_invert_z_plane(g_invert_z_plane[g_selected_head_avatar_index])
+
+    # Update features
+    update_displacements_and_opacities()
 
 #####################
 
@@ -883,7 +959,7 @@ def main():
     global gaussians, g_show_head_avatars_win, g_checkboxes, g_cutting_mode, \
         g_coloring_mode, g_keep_sh, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_x_min, g_x_max, g_x_plane, g_invert_x_plane, \
         g_y_min, g_y_max, g_y_plane, g_invert_y_plane, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, g_hair_points, g_hair_normals, g_file_paths, \
-        g_file_path
+        g_file_path, g_selected_hairstyle, g_hairstyles, g_hairstyle_file
 
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
@@ -1151,7 +1227,8 @@ def main():
             imgui.text("- Cutting mode: right-click to cut hair.")
             imgui.text("- Coloring mode: left-click to pick color, right-click to apply.")
             imgui.text("- Load animation from folder; use slider for frames.")
-            imgui.text("- Apply hairstyle from another avatar/folder.")
+            imgui.text("- Apply hairstyle from another avatar or a new file")
+            imgui.text("- To transfer changes, export the updated avatar and use its file.")
             imgui.text("- Export avatar as PLY file.")
             imgui.text("")
             imgui.end()
@@ -1329,10 +1406,10 @@ def main():
                 if changed:
                     g_renderer.update_max_cutting_distance(g_max_cutting_distance)
 
-                if imgui.button(label="Reset Cut"):
-                    reset_cut()
-                    update_means(g_selected_head_avatar_index)
-                    g_renderer.update_gaussian_data(gaussians)
+                # if imgui.button(label="Reset Cut"):
+                #     reset_cut()
+                #     update_means(g_selected_head_avatar_index)
+                #     g_renderer.update_gaussian_data(gaussians)
 
                 imgui.separator()
                 imgui.text("COLORING SETTINGS")
@@ -1358,20 +1435,13 @@ def main():
                 if changed:
                     g_renderer.update_max_coloring_distance(g_max_coloring_distance) 
 
-                if imgui.button(label="Reset Colors"):
-                    reset_coloring()
-                    g_renderer.update_gaussian_data(gaussians)
+                # if imgui.button(label="Reset Coloring"):
+                #     reset_coloring()
+                #     g_renderer.update_gaussian_data(gaussians)
 
                 imgui.separator()
                 imgui.text("FRAMES")
                 imgui.separator()
-
-                changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
-                if changed:
-                    update_frame()
-                    g_renderer.update_gaussian_data(gaussians)
-
-                imgui.same_line()
 
                 if imgui.button(label='Select Frames Folder'):
                     g_frame_folder[g_selected_head_avatar_index] = filedialog.askdirectory(
@@ -1381,20 +1451,44 @@ def main():
                 
                 imgui.text(f"Selected Frames Folder: {g_frame_folder[g_selected_head_avatar_index]}")
 
+                changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
+                if changed:
+                    update_frame()
+                    g_renderer.update_gaussian_data(gaussians)
+
                 imgui.separator()
                 imgui.text("HAIRSTYLE")
                 imgui.separator()
 
-                changed, g_selected_hair_style[g_selected_head_avatar_index] = imgui.combo("Hairstyle", g_selected_hair_style[g_selected_head_avatar_index], g_hair_styles)
+                if imgui.button(label='Select Hairstyle File'):
+                    g_hairstyle_file[g_selected_head_avatar_index] = filedialog.askopenfilename(
+                        title="Select Hairstyle File",
+                        initialdir = f"./models/",
+                        filetypes=[('ply file', '.ply')]
+                    )
+
+                imgui.text(f"Selected Hairstyle File: {g_hairstyle_file[g_selected_head_avatar_index]}")
+
+                hairstyles = copy.deepcopy(g_hairstyles)
+                hairstyles.remove("Head Avatar " + str(g_selected_head_avatar_index + 1))
+                if g_hairstyle_file[g_selected_head_avatar_index] == "":
+                    hairstyles.remove("Selected File")
+                selected_hairstyle = g_selected_hairstyle[g_selected_head_avatar_index]
+                changed, selected_hairstyle = imgui.combo("Hairstyle", hairstyles.index(g_hairstyles[g_selected_hairstyle[g_selected_head_avatar_index]]), hairstyles)
                 if changed:
-                    pass
-
-                imgui.same_line()
-
-                if imgui.button(label='Select Hairstyle Folder'):
-                    pass
-
-                imgui.text(f"Selected Hairstyle Folder: ")
+                    if hairstyles[selected_hairstyle] == "Original File":
+                        hairstyle_points, hairstyle_constants = extract_hairstyle_from_file(g_file_paths[g_selected_head_avatar_index])
+                        avatar_index = -1
+                    elif hairstyles[selected_hairstyle] == "Selected File":
+                        hairstyle_points, hairstyle_constants = extract_hairstyle_from_file(g_hairstyle_file[g_selected_head_avatar_index])
+                        avatar_index = -1
+                    else:
+                        avatar_index = int(hairstyles[selected_hairstyle].split()[-1]) - 1
+                        hairstyle_points, hairstyle_constants = extract_hairstyle_from_avatar(avatar_index)
+                    if hairstyle_points is not None and hairstyle_constants is not None:
+                        update_hairstyle(hairstyle_points, hairstyle_constants, avatar_index)
+                        g_selected_hairstyle[g_selected_head_avatar_index] = g_hairstyles.index(hairstyles[selected_hairstyle])
+                        g_renderer.update_gaussian_data(gaussians)
 
                 imgui.separator()
                 imgui.text("EXPORT")
