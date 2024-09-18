@@ -32,7 +32,7 @@ class Camera:
         
         self.rot_sensitivity = 0.002
         self.trans_sensitivity = 0.01
-        self.zoom_sensitivity = 0.08
+        self.zoom_sensitivity = 0.3
         self.roll_sensitivity = 0.03
         self.target_dist = 3.
     

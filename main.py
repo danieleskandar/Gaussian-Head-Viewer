@@ -1036,8 +1036,8 @@ def main():
                     "Show Camera Control", None, g_show_camera_win
                 )
                 if clicked and g_show_camera_win:
-                    imgui.set_window_position_labeled("Debug", 1420, 935)
-                    imgui.set_window_size_named("Debug", 495, 170)
+                    imgui.set_window_position_labeled("Camera Control", 1420, 935)
+                    imgui.set_window_size_named("Camera Control", 495, 170)
                 clicked, g_show_head_avatars_win = imgui.menu_item(
                     "Show Head Avatars", None, g_show_head_avatars_win
                 )
@@ -1142,9 +1142,11 @@ def main():
                     #     hfovxyfocal=g_camera.get_htanfovxy_focal()
                     # )
                 imgui.end()
+        elif g_auto_sort:
+            g_renderer.sort_and_update(g_camera)
 
         if g_show_camera_win:
-            imgui.begin("Debug", True)
+            imgui.begin("Camera Control", True)
 
             if imgui.button(label='rot 180'):
                 g_camera.flip_ground()
@@ -1170,7 +1172,7 @@ def main():
                 g_camera.trans_sensitivity = 0.01
 
             changed, g_camera.zoom_sensitivity = imgui.slider_float(
-                    "z", g_camera.zoom_sensitivity, 0.001, 0.05, "zoom speed = %.3f"
+                    "z", g_camera.zoom_sensitivity, 0.001, 0.1, "zoom speed = %.3f"
                 )
             imgui.same_line()
             if imgui.button(label="reset z"):
@@ -1208,7 +1210,7 @@ def main():
             imgui.text("- Right click and drag to translate.")
             imgui.text("- Use Q/E keys to roll.")
             imgui.text("- Scroll to zoom.")
-            imgui.text("- Adjust camera control sensitivities from debug window.")
+            imgui.text("- Adjust camera control sensitivities from camera control window.")
             imgui.text("")
             imgui.separator()
             imgui.text("Head Avatars Window")
@@ -1512,8 +1514,8 @@ def main():
             if init_positions_and_sizes:
                 imgui.set_window_position_labeled("Control", 1420, 25)
                 imgui.set_window_size_named("Control", 495, 265)
-                imgui.set_window_position_labeled("Debug", 1420, 935)
-                imgui.set_window_size_named("Debug", 495, 170)
+                imgui.set_window_position_labeled("Camera Control", 1420, 935)
+                imgui.set_window_size_named("Camera Control", 495, 170)
                 imgui.set_window_position_labeled("General help", 1420, 295)
                 imgui.set_window_size_named("General help", 495, 635)
                 imgui.set_window_position_labeled("Head Avatars", 5, 850)
