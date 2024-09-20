@@ -2,9 +2,7 @@
 Part of the code (CUDA and OpenGL memory transfer) is derived from https://github.com/jbaron34/torchwindow/tree/master
 '''
 from OpenGL import GL as gl
-import OpenGL.GL.shaders as shaders
-import util
-import util_gau
+from utils import util, util_gau
 import numpy as np
 import torch
 from renderer_ogl import GaussianRenderBase

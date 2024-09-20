@@ -1,11 +1,10 @@
 # frenet can be parametrized using arclength or 3d points.
 # since the points are uniformly distributed both are ok
 
-import multiprocessing as mp
 import numpy as np
 import argparse
 import os 
-import util_gau
+import utils.util_gau
 from main import *
 
 def TNB2qvecs(T, N, B):

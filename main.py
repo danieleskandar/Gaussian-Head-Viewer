@@ -3,9 +3,9 @@ import OpenGL.GL as gl
 from imgui.integrations.glfw import GlfwRenderer
 import imgui
 import numpy as np
-import util
+import utils.util
 import imageio
-import util_gau
+import utils.util_gau
 import tkinter as tk
 from tkinter import filedialog
 import os
@@ -13,8 +13,8 @@ import sys
 import argparse
 import time
 import copy
-from frenet_arcle import *
-from renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
+from utils.frenet_arcle import *
+from renderers.renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 from plyfile import PlyData, PlyElement
 
 # Add the directory containing main.py to the Python path
@@ -25,7 +25,7 @@ sys.path.append(dir_path)
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
-g_camera = util.Camera(720, 1280)
+g_camera = utils.util.Camera(720, 1280)
 BACKEND_OGL=0
 BACKEND_OGL_AXES=1
 g_renderer_list = [
@@ -64,7 +64,7 @@ left_click_start_time = None
 ########################
 # Head Avatars Variables
 ########################
-gaussians = util_gau.naive_gaussian()
+gaussians = utils.util_gau.naive_gaussian()
 g_show_head_avatars_win = True
 g_checkboxes = []
 g_head_avatars = []
@@ -118,7 +118,7 @@ def open_head_avatar_ply():
     if file_path:
         try:
             # Load head avatar
-            head_avatar, head_avatar_constants = util_gau.load_ply(file_path)
+            head_avatar, head_avatar_constants = utils.util_gau.load_ply(file_path)
 
             # Fill controller arrays
             g_head_avatars.append(head_avatar)
@@ -160,7 +160,7 @@ def open_head_avatar_ply():
             g_invert_z_plane.append(False)
             g_selected_hairstyle.append(0)
             g_hairstyles.append("Head Avatar " + str(len(g_selected_hairstyle)))
-            
+
             if len(g_head_avatars) == 1:
                 # Append head avatar to the gaussians object sent to the shader
                 xyz, rot, scale, opacity, sh = head_avatar.get_data()
@@ -211,7 +211,7 @@ def export_head_avatar(file_path):
 
     # Apply inverse operations to scales and opacities
     scale = np.log(scale)
-    with np.errstate(divide='ignore', invalid='ignore'): 
+    with np.errstate(divide='ignore', invalid='ignore'):
         opacity = np.log(opacity / (1 - opacity))
 
     # Normalize rotations (ensure they are already normalized)
@@ -309,7 +309,7 @@ def get_closest_head_avatar_index():
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
-    mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+    mouse_pos_3d = utils.util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
 
     # Compute ray direction
     ray_direction = mouse_pos_3d - g_camera.position
@@ -396,13 +396,13 @@ def select_closest_gaussian():
         if g_invert_z_plane[i]:
             z_mask = (xyz[:, 2] >= g_z_plane[i]).flatten()
         else:
-            z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten() 
+            z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten()
         xyz = xyz[x_mask & y_mask & z_mask, :]
         color = color[x_mask & y_mask & z_mask, :]
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
-    mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+    mouse_pos_3d = utils.util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
 
     # Compute ray direction
     ray_direction = mouse_pos_3d - g_camera.position
@@ -512,18 +512,18 @@ def update_means(head_avatar_index):
 
     # Handling case for which there are no hair strands. Able to open a generic gaussian ply
     # And the case where there's zero frequency or amplitude
-    if (g_hair_points[i].shape[0] != 0  and 
+    if (g_hair_points[i].shape[0] != 0  and
         len(g_wave_amplitude)*len(g_wave_frequency)!=0 and g_wave_frequency[i]*g_wave_amplitude[i]!=0):
         points = np.copy(g_hair_points[i])
         points[:,:,0] += d
-        
+
         global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
         new_points = points+global_nudging
         xyz, scale = calculate_pts_scal(new_points)
-        
+
         # New gaussians from new points either from file or calculated on the spot
         try:
-            path = util.find_closest_file(g_wave_amplitude[i], g_wave_frequency[i], f"{g_folder_paths[i]}/rots/")
+            path = utils.util.find_closest_file(g_wave_amplitude[i], g_wave_frequency[i], f"{g_folder_paths[i]}/rots/")
             rot = np.load(path)[:g_n_strands[i], :g_n_gaussians_per_strand[i]]
 
         except FileNotFoundError:
@@ -541,13 +541,13 @@ def get_displacement(head_avatar_index):
 
     if head_avatar_index == i:
         return 0
-    
+
     width = np.array(g_checkboxes) * (np.array(g_x_plane_max) - np.array(g_x_plane_min))
 
     d = g_x_plane_max[i] - g_x_plane_min[head_avatar_index] + AVATAR_SEPARATION
     for j in range(i + 1, head_avatar_index):
         d += width[j] + g_checkboxes[j] * AVATAR_SEPARATION
-    
+
     return d
 
 def get_hair_points(xyz, rot, scale, n_strands, n_gaussians_per_strand, n_hair_gaussians):
@@ -561,8 +561,8 @@ def get_hair_points(xyz, rot, scale, n_strands, n_gaussians_per_strand, n_hair_g
 
     w, x, y, z = strands_rot.transpose(2, 0, 1)
     global_x_displacement = np.array([1. - 2. * (y * y + z * z), 2. * (x * y + w * z), 2. * (x * z - w * y)]).transpose(1,2,0)
-    
-    displacements = 0.5*strands_scale*global_x_displacement 
+
+    displacements = 0.5*strands_scale*global_x_displacement
     strands[:,0] = strands_xyz[:,0] - displacements[:,0]
     strands[:,1:] = strands_xyz + displacements
 
@@ -581,7 +581,7 @@ def get_hair_points(xyz, rot, scale, n_strands, n_gaussians_per_strand, n_hair_g
 
 def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
     t = np.linspace(0, 2, n_gaussians_per_strand+1)[:,np.newaxis].T
-    
+
     # Fixing random seed for future random initial frequency and overall noise
     np.random.seed(0)
     random_init_freq = np.random.uniform(low=0, high=2*np.pi, size=(n_strands,1))
@@ -596,7 +596,7 @@ def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
     sin_wave = amplitude*np.sin(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
     cos_wave = amplitude*np.cos(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
 
-    sin_noise = cos_noise = 0 
+    sin_noise = cos_noise = 0
     if amp!=0:
         sin_noise = np.random.normal(0, amp/30, size=sin_wave.shape)
         cos_noise = np.random.normal(0, amp/30, size=cos_wave.shape)
@@ -627,7 +627,7 @@ def cut_hair():
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
-    mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+    mouse_pos_3d = utils.util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
 
     # Compute ray direction
     ray_direction = mouse_pos_3d - g_camera.position
@@ -664,7 +664,7 @@ def reset_cut():
     if file_path:
         try:
             # Set opacity from original head avatar
-            head_avatar, _ = util_gau.load_ply(file_path)
+            head_avatar, _ = utils.util_gau.load_ply(file_path)
             xyz, _, _, opacity, _ = head_avatar.get_data()
             i = g_selected_head_avatar_index
             start = get_start_index(i)
@@ -699,13 +699,13 @@ def color_hair():
     if g_invert_z_plane[i]:
         z_mask = (xyz[:, 2] >= g_z_plane[i]).flatten()
     else:
-        z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten() 
+        z_mask = (xyz[:, 2] <= g_z_plane[i]).flatten()
     xyz = xyz[x_mask & y_mask & z_mask, :]
     color = color[x_mask & y_mask & z_mask, :]
 
     # Get mouse 3D position
     mouse_pos_2d = imgui.get_io().mouse_pos
-    mouse_pos_3d = util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
+    mouse_pos_3d = utils.util.glhUnProjectf(mouse_pos_2d.x, mouse_pos_2d.y, 1, g_camera.get_view_matrix(), g_camera.get_project_matrix(), gl.glGetIntegerv(gl.GL_VIEWPORT))
 
     # Compute ray direction
     ray_direction = mouse_pos_3d - g_camera.position
@@ -735,14 +735,14 @@ def reset_coloring():
     file_path = g_file_paths[g_selected_head_avatar_index]
     if file_path:
         try:
-            head_avatar, n_strands, n_gaussians_per_strand = util_gau.load_ply(file_path)            
+            head_avatar, n_strands, n_gaussians_per_strand = utils.util_gau.load_ply(file_path)
         except RuntimeError as e:
             pass
 
 def extract_hairstyle_from_file(file_path):
     if file_path:
         try:
-            head_avatar, (n_strands, n_gaussians_per_strand) = util_gau.load_ply(file_path)
+            head_avatar, (n_strands, n_gaussians_per_strand) = utils.util_gau.load_ply(file_path)
             n_hair_gaussians = n_strands * n_gaussians_per_strand
             xyz, rot, scale, opacity, sh = head_avatar.get_data()
             return (xyz[:n_hair_gaussians, :], rot[:n_hair_gaussians, :], scale[:n_hair_gaussians, :], opacity[:n_hair_gaussians, :], sh[:n_hair_gaussians, :]), (n_strands, n_gaussians_per_strand)
@@ -808,7 +808,7 @@ def update_hairstyle(hairstyle_points, hairstyle_constants, j):
     g_renderer.update_start(get_start_index(g_selected_head_avatar_index))
     g_renderer.update_n_gaussians(g_n_gaussians[g_selected_head_avatar_index])
     g_renderer.update_n_hair_gaussians(g_n_hair_gaussians[g_selected_head_avatar_index])
-    
+
     g_renderer.update_x_plane(g_x_plane[g_selected_head_avatar_index] + get_displacement(g_selected_head_avatar_index))
     g_renderer.update_y_plane(g_y_plane[g_selected_head_avatar_index])
     g_renderer.update_z_plane(g_z_plane[g_selected_head_avatar_index])
@@ -878,7 +878,7 @@ def mouse_button_callback(window, button, action, mod):
     if button == glfw.MOUSE_BUTTON_LEFT and action == glfw.RELEASE:
         end_time = time.time()
         left_click_duration = end_time - left_click_start_time
-        
+
         if left_click_duration < CLICK_THRESHOLD:
             closest_head_avatar_index = get_closest_head_avatar_index()
             select_head_avatar(closest_head_avatar_index)
@@ -900,13 +900,13 @@ def mouse_button_callback(window, button, action, mod):
 
                 if g_coloring_mode:
                     g_selected_color = selected_color
-                    g_renderer.update_selected_color(g_selected_color)           
+                    g_renderer.update_selected_color(g_selected_color)
 
     # Cut or Color
     if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.RELEASE:
         end_time = time.time()
         right_click_duration = end_time - right_click_start_time
-        
+
         if right_click_duration < CLICK_THRESHOLD and g_cutting_mode and g_selected_head_avatar_index != -1:
             cut_hair()
             g_renderer.update_gaussian_data(gaussians)
@@ -935,7 +935,7 @@ def update_camera_intrin_lazy():
         g_renderer.update_camera_intrin(g_camera)
         g_camera.is_intrin_dirty = False
 
-def update_activated_renderer_state(gaussians: util_gau.GaussianData):
+def update_activated_renderer_state(gaussians: utils.util_gau.GaussianData):
     g_renderer.update_gaussian_data(gaussians)
     g_renderer.sort_and_update(g_camera)
     g_renderer.set_scale_modifier(g_scale_modifier)
@@ -965,7 +965,7 @@ def main():
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
         g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale, \
         g_wave_frequency, g_wave_amplitude, g_frame
-        
+
     imgui.create_context()
     if args.hidpi:
         imgui.get_io().font_global_scale = 1.5
@@ -973,12 +973,12 @@ def main():
     impl = GlfwRenderer(window)
     root = tk.Tk()  # used for file dialog
     root.withdraw()
-   
+
     glfw.set_cursor_pos_callback(window, cursor_pos_callback)
     glfw.set_mouse_button_callback(window, mouse_button_callback)
     glfw.set_scroll_callback(window, wheel_callback)
     glfw.set_key_callback(window, key_callback)
-    
+
     glfw.set_window_size_callback(window, window_resize_callback)
 
     # init renderer
@@ -987,7 +987,7 @@ def main():
     g_renderer = g_renderer_list[g_renderer_idx]
 
     # gaussian data
-    update_activated_renderer_state(gaussians)    
+    update_activated_renderer_state(gaussians)
 
     # Set parameters in shader
     g_renderer.update_cutting_mode(g_cutting_mode)
@@ -1002,19 +1002,19 @@ def main():
 
     # Initialize positions and sizes of windows
     init_positions_and_sizes = True
-    
+
     # settings
     while not glfw.window_should_close(window):
         glfw.poll_events()
         impl.process_inputs()
         imgui.new_frame()
-        
+
         gl.glClearColor(1.0, 1.0, 1.0, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
         update_camera_pose_lazy()
         update_camera_intrin_lazy()
-        
+
         g_renderer.draw()
 
         # imgui ui
@@ -1052,7 +1052,7 @@ def main():
                     imgui.set_window_size_named("Head Avatar Controller", 880, 820)
                 imgui.end_menu()
             imgui.end_main_menu_bar()
-        
+
         if g_show_control_win:
             if imgui.begin("Control", True):
                 # rendering backend
@@ -1073,25 +1073,25 @@ def main():
                         )
                     if file_path:
                         try:
-                            gaussians, _ = util_gau.load_ply(file_path)
+                            gaussians, _ = utils.util_gau.load_ply(file_path)
                             g_renderer.update_gaussian_data(gaussians)
                             g_renderer.sort_and_update(g_camera)
                         except RuntimeError as e:
                             pass
                     g_file_path = file_path
-                
+
                 if len(g_file_paths) == 0:
                     imgui.text(f"Path of selected gaussian: {g_file_path}")
-                else: 
+                else:
                     imgui.text(f"Path of selected gaussian: {g_file_paths[g_selected_head_avatar_index]}")
-                
+
                 # camera fov
                 changed, g_camera.fovy = imgui.slider_float(
                     "fov", g_camera.fovy, 0.001, np.pi - 0.001, "fov = %.3f"
                 )
                 g_camera.is_intrin_dirty = changed
                 update_camera_intrin_lazy()
-                
+
                 # scale modifier
                 changed, g_scale_modifier = imgui.slider_float(
                     "scale", g_scale_modifier, 0.1, 10, "scale modifier = %.3f"
@@ -1100,15 +1100,15 @@ def main():
                 if imgui.button(label="reset"):
                     g_scale_modifier = 1.
                     changed = True
-                    
+
                 if changed:
                     g_renderer.set_scale_modifier(g_scale_modifier)
-                
+
                 # render mode
                 changed, g_render_mode = imgui.combo("shading", g_render_mode, g_render_mode_tables)
                 if changed:
                     g_renderer.set_render_mod(g_render_mode - 5)
-                
+
                 # sort button
                 if imgui.button(label='sort Gaussians'):
                     g_renderer.sort_and_update(g_camera)
@@ -1118,7 +1118,7 @@ def main():
                     )
                 if g_auto_sort:
                     g_renderer.sort_and_update(g_camera)
-                
+
                 if imgui.button(label='save image'):
                     width, height = glfw.get_framebuffer_size(window)
                     nrChannels = 3;
@@ -1172,7 +1172,7 @@ def main():
                 g_camera.trans_sensitivity = 0.01
 
             changed, g_camera.zoom_sensitivity = imgui.slider_float(
-                    "z", g_camera.zoom_sensitivity, 0.001, 0.1, "zoom speed = %.3f"
+                    "z", g_camera.zoom_sensitivity, 0.001, 1, "zoom speed = %.3f"
                 )
             imgui.same_line()
             if imgui.button(label="reset z"):
@@ -1247,7 +1247,7 @@ def main():
                 g_renderer.update_gaussian_data(gaussians)
 
             imgui.separator()
-                
+
             # Display Head Avatar Checkboxes
             for i in range(len(g_head_avatars)):
                 changed, g_checkboxes[i] = imgui.checkbox(f"Head Avatar {i + 1} ({g_file_paths[i]})", g_checkboxes[i])
@@ -1259,7 +1259,7 @@ def main():
                     select_head_avatar(g_selected_head_avatar_index)
                     update_displacements_and_opacities()
                     g_renderer.update_gaussian_data(gaussians)
-            
+
             imgui.end()
 
         # Head Avatar Controller Window
@@ -1276,7 +1276,7 @@ def main():
                 i = g_selected_head_avatar_index
 
                 imgui.text(f"Selected Gaussian Index: {g_gaussian_index}")
-                imgui.text(f"Selected Strand Index: {g_strand_index}")                
+                imgui.text(f"Selected Strand Index: {g_strand_index}")
                 imgui.text(f"Selected Gaussian Index (Relative to Strand): {g_gaussian_strand_index}")
                 imgui.text(f"Selected Avatar Path: {g_file_paths[i]}")
 
@@ -1314,7 +1314,7 @@ def main():
 
                 changed, g_invert_y_plane[g_selected_head_avatar_index] = imgui.checkbox("Invert Y-Plane", g_invert_y_plane[g_selected_head_avatar_index])
                 if changed:
-                    g_renderer.update_invert_y_plane(g_invert_y_plane[g_selected_head_avatar_index])                 
+                    g_renderer.update_invert_y_plane(g_invert_y_plane[g_selected_head_avatar_index])
 
                 changed, g_z_plane[g_selected_head_avatar_index] = imgui.slider_float("Z-Plane", g_z_plane[g_selected_head_avatar_index], g_z_plane_min[g_selected_head_avatar_index], g_z_plane_max[g_selected_head_avatar_index], "z = %.3f")
                 if changed:
@@ -1368,7 +1368,7 @@ def main():
                 if imgui.button(label="Reset Hair Scale"):
                     g_hair_scale[i] = 1
                     update_hair_scale()
-                    g_renderer.update_gaussian_data(gaussians)   
+                    g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_wave_frequency[i] = imgui.slider_float("Wave Frequency", g_wave_frequency[i], 0, 3, "Wave Frequency = %.2f")
                 if changed:
@@ -1380,7 +1380,7 @@ def main():
                 if imgui.button(label="Reset Wave Frequency"):
                     g_wave_frequency[i] = 0
                     update_means(g_selected_head_avatar_index)
-                    g_renderer.update_gaussian_data(gaussians) 
+                    g_renderer.update_gaussian_data(gaussians)
 
                 changed, g_wave_amplitude[i] = imgui.slider_float("Wave Amplitude", g_wave_amplitude[i], 0, 0.025, "Wave Amplitude = %.3f")
                 if changed:
@@ -1402,7 +1402,7 @@ def main():
                 if changed:
                     g_coloring_mode = False
                     g_renderer.update_cutting_mode(g_cutting_mode)
-                    g_renderer.update_coloring_mode(g_coloring_mode)              
+                    g_renderer.update_coloring_mode(g_coloring_mode)
 
                 changed, g_max_cutting_distance = imgui.slider_float("Cutting Area", g_max_cutting_distance, 0.01, 0.5, "%.2f")
                 if changed:
@@ -1435,7 +1435,7 @@ def main():
 
                 changed, g_max_coloring_distance = imgui.slider_float("Coloring Area", g_max_coloring_distance, 0.01, 0.5, "%.2f")
                 if changed:
-                    g_renderer.update_max_coloring_distance(g_max_coloring_distance) 
+                    g_renderer.update_max_coloring_distance(g_max_coloring_distance)
 
                 # if imgui.button(label="Reset Coloring"):
                 #     reset_coloring()
@@ -1450,7 +1450,7 @@ def main():
                         title="Select Folder",
                         initialdir="./models/"
                     )
-                
+
                 imgui.text(f"Selected Frames Folder: {g_frame_folder[g_selected_head_avatar_index]}")
 
                 changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
@@ -1523,7 +1523,7 @@ def main():
                 imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
                 imgui.set_window_size_named("Head Avatar Controller", 880, 820)
                 init_positions_and_sizes = False
-        
+
         imgui.render()
         impl.render(imgui.get_draw_data())
         glfw.swap_buffers(window)
