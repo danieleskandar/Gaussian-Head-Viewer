@@ -9,3 +9,7 @@ iopath
 roma
 chumpy
 numpy==1.22.3
+torch
+
+# In case of error for missing shared files such as radeonsi and swrast running the following command may help
+# conda install -c conda-forge libstdcxx-ng
