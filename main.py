@@ -865,27 +865,12 @@ def update_hairstyle(hairstyle_points, hairstyle_constants, j):
     g_hair_scale[i] = 1 if j == -1 else g_hair_scale[j]
     g_wave_frequency[i] = 0 if j == -1 else g_wave_frequency[j]
     g_wave_amplitude[i] = 0 if j == -1 else g_wave_amplitude[j]
-    g_x_plane[i] = np.max(g_head_avatars[i].xyz[:, 0])
-    g_x_plane_max[i] = np.max(g_head_avatars[i].xyz[:, 0])
-    g_x_plane_min[i] = np.min(g_head_avatars[i].xyz[:, 0])
-    g_y_plane[i] = np.max(g_head_avatars[i].xyz[:, 1])
-    g_y_plane_max[i] = np.max(g_head_avatars[i].xyz[:, 1])
-    g_y_plane_min[i] = np.min(g_head_avatars[i].xyz[:, 1])
-    g_z_plane[i] = np.max(g_head_avatars[i].xyz[:, 2])
-    g_z_plane_max[i] = np.max(g_head_avatars[i].xyz[:, 2])
-    g_z_plane_min[i] = np.min(g_head_avatars[i].xyz[:, 2])
 
     # Update properties in renderer
     g_renderer.update_start(get_start_index(g_selected_head_avatar_index))
     g_renderer.update_n_gaussians(g_n_gaussians[g_selected_head_avatar_index])
     g_renderer.update_n_hair_gaussians(g_n_hair_gaussians[g_selected_head_avatar_index])
-
-    g_renderer.update_x_plane(g_x_plane[g_selected_head_avatar_index] + get_displacement(g_selected_head_avatar_index))
-    g_renderer.update_y_plane(g_y_plane[g_selected_head_avatar_index])
-    g_renderer.update_z_plane(g_z_plane[g_selected_head_avatar_index])
-    g_renderer.update_invert_x_plane(g_invert_x_plane[g_selected_head_avatar_index])
-    g_renderer.update_invert_y_plane(g_invert_y_plane[g_selected_head_avatar_index])
-    g_renderer.update_invert_z_plane(g_invert_z_plane[g_selected_head_avatar_index])
+    update_avatar_planes()
 
     # Update features
     update_displacements_and_opacities()
@@ -903,6 +888,50 @@ def update_flame_gaussians():
     sh = g_flame_model[i].get_features.detach().numpy().astype(np.float32)
     sh = sh.reshape(sh.shape[0], -1)
     gaussians.sh[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = sh
+
+def update_avatar_planes():
+    i = g_selected_head_avatar_index
+    start = get_start_index(i)
+
+    xyz = np.copy(gaussians.xyz[start:start+g_n_gaussians[i], :] - np.array([get_displacement(i), 0, 0]))
+
+    # Old x
+    old_x_plane = g_x_plane[i]
+    x_at_max = old_x_plane == g_x_plane_max[i]
+    x_at_min = old_x_plane == g_x_plane_min[i]
+
+    # Old y
+    old_y_plane = g_y_plane[i]
+    y_at_max = old_y_plane == g_y_plane_max[i]
+    y_at_min = old_y_plane == g_y_plane_min[i]
+
+    # Old z
+    old_z_plane = g_z_plane[i]
+    z_at_max = old_z_plane == g_z_plane_max[i]
+    z_at_min = old_z_plane == g_z_plane_min[i]
+
+    # Update x
+    g_x_plane_max[i] = np.max(xyz[:, 0])
+    g_x_plane_min[i] = np.min(xyz[:, 0])
+    g_x_plane[i] = g_x_plane_max[i] if x_at_max or g_x_plane[i] > g_x_plane_max[i] else g_x_plane[i]
+    g_x_plane[i] = g_x_plane_min[i] if x_at_min or g_x_plane[i] < g_x_plane_min[i] else g_x_plane[i]
+
+    # Update y
+    g_y_plane_max[i] = np.max(xyz[:, 1])
+    g_y_plane_min[i] = np.min(xyz[:, 1])
+    g_y_plane[i] = g_y_plane_max[i] if y_at_max or g_y_plane[i] > g_y_plane_max[i] else g_y_plane[i]
+    g_y_plane[i] = g_y_plane_min[i] if y_at_min or g_y_plane[i] < g_y_plane_min[i] else g_y_plane[i]
+
+    # Update z
+    g_z_plane_max[i] = np.max(xyz[:, 2])
+    g_z_plane_min[i] = np.min(xyz[:, 2])
+    g_z_plane[i] = g_z_plane_max[i] if z_at_max or g_z_plane[i] > g_z_plane_max[i] else g_z_plane[i]
+    g_z_plane[i] = g_z_plane_min[i] if z_at_min or g_z_plane[i] < g_z_plane_min[i] else g_z_plane[i]
+
+    # Update planes in renderer
+    g_renderer.update_x_plane(g_x_plane[i] + get_displacement(i)) if g_x_plane[i] != old_x_plane else None
+    g_renderer.update_y_plane(g_y_plane[i]) if g_y_plane[i] != old_y_plane else None
+    g_renderer.update_z_plane(g_z_plane[i]) if g_z_plane[i] != old_z_plane else None
 
 #####################
 
@@ -1140,7 +1169,7 @@ def main():
                 )
                 if clicked and g_show_flame_win:
                     imgui.set_window_position_labeled("FLAME", 890, 25)
-                    imgui.set_window_size_named("FLAME", 525, 295)
+                    imgui.set_window_size_named("FLAME", 525, 310)
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
@@ -1339,6 +1368,7 @@ def main():
                 if changed:
                     g_flame_param[g_selected_head_avatar_index]["neck"] = torch.tensor(neck).view(1, 3)
                     update_flame_gaussians()
+                    update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
                 jaw = tuple(g_flame_param[g_selected_head_avatar_index]["jaw"].squeeze().tolist())
@@ -1346,6 +1376,7 @@ def main():
                 if changed:
                     g_flame_param[g_selected_head_avatar_index]["jaw"] = torch.tensor(jaw).view(1, 3)
                     update_flame_gaussians()
+                    update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
                 eyes = tuple(g_flame_param[g_selected_head_avatar_index]["eyes"][0, 3:].squeeze().tolist())
@@ -1354,7 +1385,10 @@ def main():
                     g_flame_param[g_selected_head_avatar_index]["eyes"][0, :3] = torch.tensor(eyes).view(1, 3)
                     g_flame_param[g_selected_head_avatar_index]["eyes"][0, 3:] = torch.tensor(eyes).view(1, 3)
                     update_flame_gaussians()
+                    update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
+
+                imgui.text("      roll            pitch            yaw")
 
                 imgui.separator()
                 imgui.text("EXPRESSIONS")
@@ -1364,6 +1398,7 @@ def main():
                     changed, g_flame_param[g_selected_head_avatar_index]["expr"][0, expr] = imgui.slider_float(str(expr), g_flame_param[g_selected_head_avatar_index]["expr"][0, expr], min_value=-3, max_value=3, format="%.2f")
                     if changed:
                         update_flame_gaussians()
+                        update_avatar_planes()
                         g_renderer.update_gaussian_data(gaussians)
 
                 imgui.separator()
@@ -1371,6 +1406,7 @@ def main():
                 if imgui.button(label='Reset FLAME'):
                     g_flame_param[g_selected_head_avatar_index] = reset_flame_param(g_flame_model[g_selected_head_avatar_index].n_expr)
                     update_flame_gaussians()
+                    update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)                 
 
             imgui.end()
@@ -1625,6 +1661,7 @@ def main():
                 changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
                 if changed:
                     update_frame()
+                    update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
                 imgui.separator()
@@ -1692,7 +1729,7 @@ def main():
                 imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
                 imgui.set_window_size_named("Head Avatar Controller", 880, 820)
                 imgui.set_window_position_labeled("FLAME", 890, 25)
-                imgui.set_window_size_named("FLAME", 525, 295)
+                imgui.set_window_size_named("FLAME", 525, 310)
                 init_positions_and_sizes = False
 
         imgui.render()
