@@ -5,3 +5,7 @@ PyOpenGL
 numpy
 imageio
 plyfile
+iopath
+roma
+chumpy
+numpy==1.22.3

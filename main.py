@@ -17,6 +17,9 @@ from utils.frenet_arcle import *
 from renderers.renderer_ogl import OpenGLRenderer, GaussianRenderBase, OpenGLRendererAxes
 from plyfile import PlyData, PlyElement
 
+import torch
+from flame.flame_gaussian_model import FlameGaussianModel
+
 # Add the directory containing main.py to the Python path
 dir_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(dir_path)
@@ -38,6 +41,7 @@ g_auto_sort = True
 g_show_control_win = True
 g_show_help_win = True
 g_show_camera_win = True
+g_show_flame_win = True
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
 g_file_path = "Default Naive 4 Gaussian"
@@ -99,87 +103,116 @@ g_z_plane_max = []
 g_z_plane_min = []
 g_invert_z_plane = []
 g_hairstyles = ["Original File", "Selected File"]
+g_flame_model = []
+g_flame_param = []
 
 g_strand_index = "None"
 g_gaussian_index = "None"
 g_gaussian_strand_index = "None"
 
+###################
+# FLAME Parameters
+###################
+
+def reset_flame_param(n_expr):
+    return {
+        'expr': torch.zeros(1, n_expr),
+        'rotation': torch.zeros(1, 3),
+        'neck': torch.zeros(1, 3),
+        'jaw': torch.zeros(1, 3),
+        'eyes': torch.zeros(1, 6),
+        'translation': torch.zeros(1, 3),
+    }
+
 ######################
 # Head Avatars Actions
 ######################
-def open_head_avatar_ply():
-    global gaussians, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians
+def load_avatar_from_folder(folder_path):
+    # Load hair
+    hair, head_avatar_constants = utils.util_gau.load_ply(folder_path + "/hair.ply")
 
-    file_path = filedialog.askopenfilename(
-        title="open ply",
-        initialdir = f"./models/",
-        filetypes=[('ply file', '.ply')]
-    )
-    if file_path:
-        try:
-            # Load head avatar
-            head_avatar, head_avatar_constants = utils.util_gau.load_ply(file_path)
+    # Load head
+    point_path = folder_path + "/head.ply"
+    motion_path = folder_path + "/flame_param.npz"
+    flame_model = FlameGaussianModel(sh_degree=3)
+    flame_model.load_ply(point_path, has_target=False, motion_path=motion_path, disable_fid=[])
 
-            # Fill controller arrays
-            g_head_avatars.append(head_avatar)
-            g_means.append(np.mean(head_avatar.xyz, axis=0))
-            g_max_distance.append(np.max(np.linalg.norm(head_avatar.xyz - g_means[-1], axis=1)))
-            g_folder_paths.append(file_path.rsplit('/', 1)[0])
-            g_frame_folder.append("")
-            g_hairstyle_file.append("")
-            g_file_paths.append(file_path)
-            g_n_gaussians.append(head_avatar.xyz.shape[0])
-            g_n_strands.append(head_avatar_constants[0])
-            g_n_gaussians_per_strand.append(head_avatar_constants[1])
-            g_n_hair_gaussians.append(head_avatar_constants[0] * head_avatar_constants[1])
-            g_checkboxes.append(True)
-            hair_points, hair_normals = get_hair_points(head_avatar.xyz, head_avatar.rot, head_avatar.scale, g_n_strands[-1], g_n_gaussians_per_strand[-1], g_n_hair_gaussians[-1])
-            g_hair_points.append(hair_points)
-            g_hair_normals.append(hair_normals)
-            g_show_hair.append(True)
-            g_show_head.append(True)
-            g_hair_color.append([1, 0, 0])
-            g_head_color.append([1, 1, 1])
-            g_show_hair_color.append(False)
-            g_show_head_color.append(False)
-            g_hair_scale.append(1)
-            g_wave_frequency.append(0)
-            g_wave_amplitude.append(0)
-            g_frame.append(0)
-            g_x_plane.append(np.max(head_avatar.xyz[:, 0]))
-            g_x_plane_max.append(np.max(head_avatar.xyz[:, 0]))
-            g_x_plane_min.append(np.min(head_avatar.xyz[:, 0]))
-            g_invert_x_plane.append(False)
-            g_y_plane.append(np.max(head_avatar.xyz[:, 1]))
-            g_y_plane_max.append(np.max(head_avatar.xyz[:, 1]))
-            g_y_plane_min.append(np.min(head_avatar.xyz[:, 1]))
-            g_invert_y_plane.append(False)
-            g_z_plane.append(np.max(head_avatar.xyz[:, 2]))
-            g_z_plane_max.append(np.max(head_avatar.xyz[:, 2]))
-            g_z_plane_min.append(np.min(head_avatar.xyz[:, 2]))
-            g_invert_z_plane.append(False)
-            g_selected_hairstyle.append(0)
-            g_hairstyles.append("Head Avatar " + str(len(g_selected_hairstyle)))
+    # Creater avatar
+    head_avatar = utils.util_gau.naive_gaussian()
+    head_avatar.xyz = np.vstack([hair.xyz, flame_model.get_xyz.detach().numpy().astype(np.float32)])
+    head_avatar.rot = np.vstack([hair.rot, flame_model.get_rotation.detach().numpy().astype(np.float32)])
+    head_avatar.scale = np.vstack([hair.scale, flame_model.get_scaling.detach().numpy().astype(np.float32)])
+    head_avatar.opacity = np.vstack([hair.opacity, flame_model.get_opacity.detach().numpy().astype(np.float32)])
+    head_sh = flame_model.get_features.detach().numpy().astype(np.float32)
+    head_sh = head_sh.reshape(head_sh.shape[0], -1)
+    head_avatar.sh = np.vstack([hair.sh, head_sh])
 
-            if len(g_head_avatars) == 1:
-                # Append head avatar to the gaussians object sent to the shader
-                xyz, rot, scale, opacity, sh = head_avatar.get_data()
-                gaussians.xyz = xyz
-                gaussians.rot = rot
-                gaussians.scale = scale
-                gaussians.opacity = np.ones_like(opacity)
-                gaussians.sh = sh
-            else:
-                # Append head avatar to the gaussians object sent to the shader
-                gaussians.xyz = np.vstack([gaussians.xyz, head_avatar.xyz]).astype(np.float32)
-                gaussians.rot = np.vstack([gaussians.rot, head_avatar.rot]).astype(np.float32)
-                gaussians.scale = np.vstack([gaussians.scale, head_avatar.scale]).astype(np.float32)
-                gaussians.opacity = np.vstack([gaussians.opacity, head_avatar.opacity]).astype(np.float32)
-                gaussians.sh = np.vstack([gaussians.sh, head_avatar.sh]).astype(np.float32)
+    return head_avatar, head_avatar_constants, flame_model
+    
 
-            g_renderer.update_n_gaussians(g_n_gaussians[-1])
-        except RuntimeError as e:
-            pass
+def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
+    global gaussians, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians, g_flame_model, g_flame_param
+
+    # Fill controller arrays
+    g_head_avatars.append(head_avatar)
+    g_means.append(np.mean(head_avatar.xyz, axis=0))
+    g_max_distance.append(np.max(np.linalg.norm(head_avatar.xyz - g_means[-1], axis=1)))
+    g_folder_paths.append(path.rsplit('/', 1)[0])
+    g_frame_folder.append("")
+    g_hairstyle_file.append("")
+    g_file_paths.append(path)
+    g_n_gaussians.append(head_avatar.xyz.shape[0])
+    g_n_strands.append(head_avatar_constants[0])
+    g_n_gaussians_per_strand.append(head_avatar_constants[1])
+    g_n_hair_gaussians.append(head_avatar_constants[0] * head_avatar_constants[1])
+    g_checkboxes.append(True)
+    hair_points, hair_normals = get_hair_points(head_avatar.xyz, head_avatar.rot, head_avatar.scale, g_n_strands[-1], g_n_gaussians_per_strand[-1], g_n_hair_gaussians[-1])
+    g_hair_points.append(hair_points)
+    g_hair_normals.append(hair_normals)
+    g_show_hair.append(True)
+    g_show_head.append(True)
+    g_hair_color.append([1, 0, 0])
+    g_head_color.append([1, 1, 1])
+    g_show_hair_color.append(False)
+    g_show_head_color.append(False)
+    g_hair_scale.append(1)
+    g_wave_frequency.append(0)
+    g_wave_amplitude.append(0)
+    g_frame.append(0)
+    g_x_plane.append(np.max(head_avatar.xyz[:, 0]))
+    g_x_plane_max.append(np.max(head_avatar.xyz[:, 0]))
+    g_x_plane_min.append(np.min(head_avatar.xyz[:, 0]))
+    g_invert_x_plane.append(False)
+    g_y_plane.append(np.max(head_avatar.xyz[:, 1]))
+    g_y_plane_max.append(np.max(head_avatar.xyz[:, 1]))
+    g_y_plane_min.append(np.min(head_avatar.xyz[:, 1]))
+    g_invert_y_plane.append(False)
+    g_z_plane.append(np.max(head_avatar.xyz[:, 2]))
+    g_z_plane_max.append(np.max(head_avatar.xyz[:, 2]))
+    g_z_plane_min.append(np.min(head_avatar.xyz[:, 2]))
+    g_invert_z_plane.append(False)
+    g_selected_hairstyle.append(0)
+    g_hairstyles.append("Head Avatar " + str(len(g_selected_hairstyle)))
+    g_flame_model.append(flame_model)
+    g_flame_param.append(reset_flame_param(flame_model.n_expr)) if flame_model is not None else g_flame_param.append(None)
+
+    if len(g_head_avatars) == 1:
+        # Append head avatar to the gaussians object sent to the shader
+        xyz, rot, scale, opacity, sh = head_avatar.get_data()
+        gaussians.xyz = xyz
+        gaussians.rot = rot
+        gaussians.scale = scale
+        gaussians.opacity = np.ones_like(opacity)
+        gaussians.sh = sh
+    else:
+        # Append head avatar to the gaussians object sent to the shader
+        gaussians.xyz = np.vstack([gaussians.xyz, head_avatar.xyz]).astype(np.float32)
+        gaussians.rot = np.vstack([gaussians.rot, head_avatar.rot]).astype(np.float32)
+        gaussians.scale = np.vstack([gaussians.scale, head_avatar.scale]).astype(np.float32)
+        gaussians.opacity = np.vstack([gaussians.opacity, head_avatar.opacity]).astype(np.float32)
+        gaussians.sh = np.vstack([gaussians.sh, head_avatar.sh]).astype(np.float32)
+
+    g_renderer.update_n_gaussians(g_n_gaussians[-1])
 
 def export_head_avatar(file_path):
     i = g_selected_head_avatar_index
@@ -819,6 +852,20 @@ def update_hairstyle(hairstyle_points, hairstyle_constants, j):
     # Update features
     update_displacements_and_opacities()
 
+def update_flame_gaussians():
+    i = g_selected_head_avatar_index
+    start = get_start_index(i)
+
+    g_flame_model[i].update_mesh_by_param_dict(g_flame_param[i])
+
+    gaussians.xyz[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_xyz.detach().numpy().astype(np.float32)
+    gaussians.rot[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_rotation.detach().numpy().astype(np.float32)
+    gaussians.scale[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_scaling.detach().numpy().astype(np.float32)
+    gaussians.opacity[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_opacity.detach().numpy().astype(np.float32)
+    sh = g_flame_model[i].get_features.detach().numpy().astype(np.float32)
+    sh = sh.reshape(sh.shape[0], -1)
+    gaussians.sh[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = sh
+
 #####################
 
 def impl_glfw_init():
@@ -952,7 +999,7 @@ def window_resize_callback(window, width, height):
 
 def main():
     global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_auto_sort, \
-        g_show_control_win, g_show_help_win, g_show_camera_win, \
+        g_show_control_win, g_show_help_win, g_show_camera_win, g_show_flame_win, \
         g_render_mode, g_render_mode_tables
 
     # Head Avatars Global Variables
@@ -964,7 +1011,7 @@ def main():
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
         g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale, \
-        g_wave_frequency, g_wave_amplitude, g_frame
+        g_wave_frequency, g_wave_amplitude, g_frame, g_flame_model, g_flame_param
 
     imgui.create_context()
     if args.hidpi:
@@ -1050,6 +1097,12 @@ def main():
                 if clicked and g_show_head_avatar_controller_win:
                     imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
                     imgui.set_window_size_named("Head Avatar Controller", 880, 820)
+                clicked, g_show_flame_win = imgui.menu_item(
+                    "Show FLAME", None, g_show_flame_win
+                )
+                if clicked and g_show_flame_win:
+                    imgui.set_window_position_labeled("FLAME", 890, 25)
+                    imgui.set_window_size_named("FLAME", 525, 295)
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
@@ -1079,6 +1132,7 @@ def main():
                         except RuntimeError as e:
                             pass
                     g_file_path = file_path
+                    g_selected_head_avatar_index = -1
 
                 if len(g_file_paths) == 0:
                     imgui.text(f"Path of selected gaussian: {g_file_path}")
@@ -1195,14 +1249,12 @@ def main():
             imgui.text("- 3D Gaussian Splatting visualization tool.")
             imgui.text("- Manipulate camera, render, and adjust settings.")
             imgui.text("- Edit and render head avatars with dedicated tools.")
-            imgui.text("")
             imgui.separator()
             imgui.text("Control Window")
             imgui.separator()
             imgui.text("- Use 'Open PLY' to load PLY files (except head avatars).")
             imgui.text("- Adjust shading, Gaussian scale, and sorting options.")
             imgui.text("- Backend: 'OGL' for rendering and 'axes' to visualize rotations.")
-            imgui.text("")
             imgui.separator()
             imgui.text("Camera Control and Debug Window:")
             imgui.separator()
@@ -1211,13 +1263,11 @@ def main():
             imgui.text("- Use Q/E keys to roll.")
             imgui.text("- Scroll to zoom.")
             imgui.text("- Adjust camera control sensitivities from camera control window.")
-            imgui.text("")
             imgui.separator()
             imgui.text("Head Avatars Window")
             imgui.separator()
-            imgui.text("- Use 'open head avatar ply' to load a head avatar.")
+            imgui.text("- Load head avatar from file or load FLAME avatar from folder.")
             imgui.text("- Toggle avatar visibility with checkboxes.")
-            imgui.text("")
             imgui.separator()
             imgui.text("Head Avatar Controller Window")
             imgui.separator()
@@ -1230,21 +1280,102 @@ def main():
             imgui.text("- Coloring mode: left-click to pick color, right-click to apply.")
             imgui.text("- Load animation from folder; use slider for frames.")
             imgui.text("- Apply hairstyle from another avatar or a new file")
-            imgui.text("- To transfer changes, export the updated avatar and use its file.")
             imgui.text("- Export avatar as PLY file.")
-            imgui.text("")
+            imgui.separator()
+            imgui.text("FLAME Window")
+            imgui.separator()
+            imgui.text("- Adjust neck, jaw, and eye positions with sliders.")
+            imgui.text("- Modify facial expressions and reset to default.")
+            imgui.end()
+
+        # FLAME Winwo
+        if g_show_flame_win:
+            imgui.begin("FLAME", True)
+            if g_selected_head_avatar_index != -1 and g_flame_model[g_selected_head_avatar_index] is not None:
+                imgui.separator()
+                imgui.text("JOINTS")
+                imgui.separator()
+
+                neck = tuple(g_flame_param[g_selected_head_avatar_index]["neck"].squeeze().tolist())
+                changed, neck = imgui.slider_float3("neck", *neck, min_value=-0.5, max_value=0.5, format="%.2f")
+                if changed:
+                    g_flame_param[g_selected_head_avatar_index]["neck"] = torch.tensor(neck).view(1, 3)
+                    update_flame_gaussians()
+                    g_renderer.update_gaussian_data(gaussians)
+
+                jaw = tuple(g_flame_param[g_selected_head_avatar_index]["jaw"].squeeze().tolist())
+                changed, jaw = imgui.slider_float3("jaw", *jaw, min_value=-0.5, max_value=0.5, format="%.2f")
+                if changed:
+                    g_flame_param[g_selected_head_avatar_index]["jaw"] = torch.tensor(jaw).view(1, 3)
+                    update_flame_gaussians()
+                    g_renderer.update_gaussian_data(gaussians)
+
+                eyes = tuple(g_flame_param[g_selected_head_avatar_index]["eyes"][0, 3:].squeeze().tolist())
+                changed, eyes = imgui.slider_float3("eyes", *eyes, min_value=-0.5, max_value=0.5, format="%.2f")
+                if changed:
+                    g_flame_param[g_selected_head_avatar_index]["eyes"][0, :3] = torch.tensor(eyes).view(1, 3)
+                    g_flame_param[g_selected_head_avatar_index]["eyes"][0, 3:] = torch.tensor(eyes).view(1, 3)
+                    update_flame_gaussians()
+                    g_renderer.update_gaussian_data(gaussians)
+
+                imgui.separator()
+                imgui.text("EXPRESSIONS")
+                imgui.separator()
+
+                for expr in range(5):
+                    changed, g_flame_param[g_selected_head_avatar_index]["expr"][0, expr] = imgui.slider_float(str(expr), g_flame_param[g_selected_head_avatar_index]["expr"][0, expr], min_value=-3, max_value=3, format="%.2f")
+                    if changed:
+                        update_flame_gaussians()
+                        g_renderer.update_gaussian_data(gaussians)
+
+                imgui.separator()
+
+                if imgui.button(label='Reset FLAME'):
+                    g_flame_param[g_selected_head_avatar_index] = reset_flame_param(g_flame_model[g_selected_head_avatar_index].n_expr)
+                    update_flame_gaussians()
+                    g_renderer.update_gaussian_data(gaussians)                 
+
             imgui.end()
 
         # Head Avatars Window
         if g_show_head_avatars_win:
             imgui.begin("Head Avatars", True)
 
-            # Load Head avatar button
-            if imgui.button(label='open head avatar ply'):
-                open_head_avatar_ply()
-                update_displacements_and_opacities()
-                select_head_avatar(len(g_head_avatars) - 1)
-                g_renderer.update_gaussian_data(gaussians)
+            # Open head avatar from file button
+            if imgui.button(label='Open Head Avatar File'):
+                file_path = filedialog.askopenfilename(
+                    title="open ply from file",
+                    initialdir = f"./models/",
+                    filetypes=[('ply file', '.ply')]
+                )
+                if file_path:
+                    try:
+                        head_avatar, head_avatar_constants = utils.util_gau.load_ply(file_path)
+                        open_head_avatar(file_path, head_avatar, head_avatar_constants, None)
+                        update_displacements_and_opacities()
+                        select_head_avatar(len(g_head_avatars) - 1)
+                        g_renderer.update_gaussian_data(gaussians)
+                    except RuntimeError as e:
+                        pass
+
+            imgui.same_line()
+
+            if imgui.button(label='Open Head Avatar Folder'):
+                folder_path = filedialog.askdirectory(
+                    title="Select Folder",
+                    initialdir="./models/"
+                )
+                if folder_path:
+                    try:
+                        head_avatar, head_avatar_constants, flame_model = load_avatar_from_folder(folder_path)
+                        open_head_avatar(folder_path, head_avatar, head_avatar_constants, flame_model)
+                        update_displacements_and_opacities()
+                        select_head_avatar(len(g_head_avatars) - 1)
+                        g_renderer.update_gaussian_data(gaussians)
+                    except RuntimeError as e:
+                        pass
+
+            # Open head avatar from folder button                
 
             imgui.separator()
 
@@ -1522,6 +1653,8 @@ def main():
                 imgui.set_window_size_named("Head Avatars", 880, 255)
                 imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
                 imgui.set_window_size_named("Head Avatar Controller", 880, 820)
+                imgui.set_window_position_labeled("FLAME", 890, 25)
+                imgui.set_window_size_named("FLAME", 525, 295)
                 init_positions_and_sizes = False
 
         imgui.render()
