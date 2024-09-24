@@ -115,8 +115,7 @@ def quaternions_multiply(quaternion1, quaternion0):
 def calculate_pts_scal(hair_strands):
     midpoints = (hair_strands[:,:-1,:] + hair_strands[:,1:,:]) / 2
     x_scales = np.linalg.norm(hair_strands[:,:-1,:]-hair_strands[:,1:,:], axis=2)
-    scales = np.dstack([x_scales, x_scales/10, x_scales/10])
-    return midpoints, scales
+    return midpoints, x_scales
 
 def calculate_TNB(hair_strands):
     T = np.zeros_like(hair_strands)
@@ -187,17 +186,21 @@ def calculate_frenet_curls(head_file, ncurls, max_amp, max_freq):
     amps = np.linspace(max_amp, 0, ncurls, endpoint=False)[::-1]
     freqs= np.linspace(max_freq, 0, ncurls, endpoint=False)[::-1]
     amps_freqs = np.vstack((amps, freqs))
-    rots = np.zeros((ncurls, ncurls, strands_rot.shape[0], strands_rot.shape[1], strands_rot.shape[2]), dtype=np.float16)
+    rxyzs = np.zeros((ncurls, ncurls,n_strands*n_gaussians_per_strand, strands_rot.shape[2]+strands_xyz.shape[2]+1), dtype=np.float16)
 
     for i, amp in enumerate(amps):
         for j, freq in enumerate(freqs):
             global_nudging = get_curls(amp, freq, normals, n_gaussians_per_strand, n_strands)
             new_points = points+global_nudging
+            xyz, xscale = calculate_pts_scal(new_points)
             rot = calculate_rot_quat(new_points)
-            rot = np.float16(rot)
-            rots[i,j] = rot
 
-    np.save(os.path.join(os.path.dirname(head_file), 'rots.npy'), rots)
+            rot, xyz, scale = np.float16(rot), np.float16(xyz), np.float16(xscale)
+            rxyzs[i,j,:,:4] = rot.reshape(-1,4)
+            rxyzs[i,j,:,4:7] = xyz.reshape(-1,3)
+            rxyzs[i,j,:,7] = scale.flatten()
+
+    np.save(os.path.join(os.path.dirname(head_file), 'rxyzs.npy'), rxyzs)
     np.save(os.path.join(os.path.dirname(head_file), 'amps_freqs.npy'), amps_freqs)
 
         

@@ -535,7 +535,7 @@ def update_frame():
 def get_hair_rots_amps_freqs(path):
     currdir = os.path.dirname(path)
     try:
-        rot = np.load(os.path.join(currdir, "rots.npy"))
+        rot = np.load(os.path.join(currdir, "rxyzs.npy"))
         amps_freqs = np.load(os.path.join(currdir, "amps_freqs.npy"))
         return np.float16(rot), np.float16(amps_freqs)
 
@@ -545,46 +545,62 @@ def get_hair_rots_amps_freqs(path):
 def update_means(head_avatar_index):
     i = head_avatar_index
     start = get_start_index(i)
-
-    xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
-    gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
-
-    f, _ = get_frame(i)
-    gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f
-
     d = get_displacement(i)
-    gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
-
-    gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
-    gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
 
     # Handling case for which there are no hair strands. Able to open a generic gaussian ply
     # And the case where there's zero frequency or amplitude
     if (g_hair_points[i].shape[0] != 0  and
         len(g_wave_amplitude)*len(g_wave_frequency)!=0 and g_wave_frequency[i]*g_wave_amplitude[i]!=0):
-        points = np.copy(g_hair_points[i])
-        points[:,:,0] += d
-
-        global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
-        new_points = points+global_nudging
-        xyz, scale = calculate_pts_scal(new_points)
 
         # New gaussians from new points either from file or calculated on the spot
-        rot = None
-        if (isinstance(g_hair_amps_freqs[i][0], np.ndarray)):
+        if (isinstance(g_hair_amps_freqs[i], np.ndarray)):
             amps_freqs = g_hair_amps_freqs[i]
             amps, freqs = amps_freqs[0], amps_freqs[1]
-            rots = g_hair_rots[i]
+            rxyzs = g_hair_rots[i]
             
             idx_i = np.argmin(abs(amps - g_wave_amplitude[i]))
             idx_j = np.argmin(abs(freqs - g_wave_frequency[i]))
-            rot = rots[idx_i, idx_j]
+            rxyzs_ij = rxyzs[idx_i, idx_j]
+            
+            rot = rxyzs_ij[:,:4]
+            xyz = rxyzs_ij[:,4:7] + d
+            x_scales = rxyzs_ij[:,7]
+            scales = np.dstack([x_scales, x_scales/10, x_scales/10])[0]
+
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot
+            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scales*g_hair_scale[i]
         else:
+            xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
+            f, _ = get_frame(i)
+
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f + d
+            gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
+            gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
+
+            points = np.copy(g_hair_points[i])
+            points[:,:,0] += d
+            global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
+            new_points = points+global_nudging
+            xyz, x_scales = calculate_pts_scal(new_points)
+            x_scales = x_scales.flatten()
+            scale = np.dstack([x_scales, x_scales/10, x_scales/10])
             rot = calculate_rot_quat(new_points)
 
-        gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz.reshape(-1,3)
-        gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot.reshape(-1,4)
-        gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale.reshape(-1,3)*g_hair_scale[i]
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz.reshape(-1,3)
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot.reshape(-1,4)
+            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale.reshape(-1,3)*g_hair_scale[i]
+    
+    else:
+        xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
+        gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
+
+        f, _ = get_frame(i)
+        gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f
+        gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
+
+        gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
+        gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
 
     g_means[i] = np.mean(gaussians.xyz[start:start+g_n_gaussians[i]], axis=0)
 
