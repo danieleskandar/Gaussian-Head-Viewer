@@ -83,6 +83,8 @@ g_n_hair_gaussians = []
 g_max_distance = []
 g_means = []
 g_hair_points = []
+g_hair_rots = []
+g_hair_amps_freqs = []
 g_hair_normals = []
 g_z_max = 1
 g_z_min = -1
@@ -169,6 +171,9 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
     hair_points, hair_normals = get_hair_points(head_avatar.xyz, head_avatar.rot, head_avatar.scale, g_n_strands[-1], g_n_gaussians_per_strand[-1], g_n_hair_gaussians[-1])
     g_hair_points.append(hair_points)
     g_hair_normals.append(hair_normals)
+    rots, amps_freqs = get_hair_rots_amps_freqs(path)
+    g_hair_rots.append(rots)
+    g_hair_amps_freqs.append(amps_freqs)
     g_show_hair.append(True)
     g_show_head.append(True)
     g_hair_color.append([1, 0, 0])
@@ -527,6 +532,16 @@ def update_frame():
     gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot
     update_means(i)
 
+def get_hair_rots_amps_freqs(path):
+    currdir = os.path.dirname(path)
+    try:
+        rot = np.load(os.path.join(currdir, "rots.npy"))
+        amps_freqs = np.load(os.path.join(currdir, "amps_freqs.npy"))
+        return np.float16(rot), np.float16(amps_freqs)
+
+    except FileNotFoundError:
+        return None, None
+
 def update_means(head_avatar_index):
     i = head_avatar_index
     start = get_start_index(i)
@@ -555,11 +570,16 @@ def update_means(head_avatar_index):
         xyz, scale = calculate_pts_scal(new_points)
 
         # New gaussians from new points either from file or calculated on the spot
-        try:
-            path = utils.util.find_closest_file(g_wave_amplitude[i], g_wave_frequency[i], f"{g_folder_paths[i]}/rots/")
-            rot = np.load(path)[:g_n_strands[i], :g_n_gaussians_per_strand[i]]
-
-        except FileNotFoundError:
+        rot = None
+        if (isinstance(g_hair_amps_freqs[i][0], np.ndarray)):
+            amps_freqs = g_hair_amps_freqs[i]
+            amps, freqs = amps_freqs[0], amps_freqs[1]
+            rots = g_hair_rots[i]
+            
+            idx_i = np.argmin(abs(amps - g_wave_amplitude[i]))
+            idx_j = np.argmin(abs(freqs - g_wave_frequency[i]))
+            rot = rots[idx_i, idx_j]
+        else:
             rot = calculate_rot_quat(new_points)
 
         gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz.reshape(-1,3)
@@ -824,6 +844,8 @@ def update_hairstyle(hairstyle_points, hairstyle_constants, j):
     g_n_gaussians_per_strand[i] = n_gaussians_per_strand
     g_n_hair_gaussians[i] = n_hair_gaussians
     g_hair_points[i], g_hair_normals[i] = get_hair_points(g_head_avatars[i].xyz, g_head_avatars[i].rot, g_head_avatars[i].scale, n_strands, n_gaussians_per_strand, n_hair_gaussians)
+    g_hair_rots[i] = g_hair_rots[j]
+    g_hair_amps_freqs[i] = g_hair_amps_freqs[j]
     g_hair_scale[i] = 1 if j == -1 else g_hair_scale[j]
     g_wave_frequency[i] = 0 if j == -1 else g_wave_frequency[j]
     g_wave_amplitude[i] = 0 if j == -1 else g_wave_amplitude[j]
@@ -1006,7 +1028,7 @@ def main():
     global gaussians, g_show_head_avatars_win, g_checkboxes, g_cutting_mode, \
         g_coloring_mode, g_keep_sh, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_x_min, g_x_max, g_x_plane, g_invert_x_plane, \
         g_y_min, g_y_max, g_y_plane, g_invert_y_plane, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, g_hair_points, g_hair_normals, g_file_paths, \
-        g_file_path, g_selected_hairstyle, g_hairstyles, g_hairstyle_file
+        g_file_path, g_selected_hairstyle, g_hairstyles, g_hairstyle_file, g_hair_rots, g_hair_amps_freqs
 
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \

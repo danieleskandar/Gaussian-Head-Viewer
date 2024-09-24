@@ -4,8 +4,65 @@
 import numpy as np
 import argparse
 import os 
-import utils.util_gau
-from main import *
+try:
+    from utils import util_gau
+except:
+    import util_gau
+
+def get_hair_points(xyz, rot, scale, n_strands, n_gaussians_per_strand, n_hair_gaussians):
+    if n_strands == 0:
+        return np.array([]), np.array([]),
+
+    strands = np.zeros((n_strands, n_gaussians_per_strand+1, 3))
+    strands_xyz = xyz[:n_hair_gaussians].reshape(n_strands, n_gaussians_per_strand, -1)
+    strands_rot = rot[:n_hair_gaussians].reshape(n_strands, n_gaussians_per_strand, -1)
+    strands_scale = scale[:n_hair_gaussians].reshape(n_strands, n_gaussians_per_strand, -1)
+
+    w, x, y, z = strands_rot.transpose(2, 0, 1)
+    global_x_displacement = np.array([1. - 2. * (y * y + z * z), 2. * (x * y + w * z), 2. * (x * z - w * y)]).transpose(1,2,0)
+
+    displacements = 0.5*strands_scale*global_x_displacement
+    strands[:,0] = strands_xyz[:,0] - displacements[:,0]
+    strands[:,1:] = strands_xyz + displacements
+
+    # Mean x-displacement of the hair gaussians after first couple gaussians
+    start = n_gaussians_per_strand//10
+    mean_last_disps = np.mean(global_x_displacement[:,start:], axis=1)
+
+    # Orthogonal vectors which lie on the plane perpendicular to hair
+    normals = np.zeros_like(mean_last_disps)
+    normals[:, 0], normals[:, 1] = mean_last_disps[:, 1], -mean_last_disps[:, 0]
+    binormals = np.cross(mean_last_disps, normals)
+    normals /= np.linalg.norm(normals, axis=1)[:,np.newaxis]
+    binormals /= np.linalg.norm(binormals, axis=1)[:,np.newaxis]
+    disps = np.stack((normals, binormals))
+    return strands, disps
+
+def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
+    t = np.linspace(0, 2, n_gaussians_per_strand+1)[:,np.newaxis].T
+
+    # Fixing random seed for future random initial frequency and overall noise
+    np.random.seed(0)
+    random_init_freq = np.random.uniform(low=0, high=2*np.pi, size=(n_strands,1))
+    # Parameter t with random initial values so it doesn't look too uniform
+    t_strands = t+random_init_freq
+    # Multiplier to t value so it curls either way
+    random_dir = np.random.choice([-1, 1], size=(n_strands,1))
+
+    # Quadratic so hair roots are not displaced
+    amplitude = (t**2*amp)[:,:,np.newaxis]
+    # Sine and cosine to get coil shaped curls and not one-dimensional
+    sin_wave = amplitude*np.sin(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
+    cos_wave = amplitude*np.cos(random_dir*(np.pi * freq * t + t_strands))[:,:,np.newaxis]
+
+    sin_noise = cos_noise = 0
+    if amp!=0:
+        sin_noise = np.random.normal(0, amp/30, size=sin_wave.shape)
+        cos_noise = np.random.normal(0, amp/30, size=cos_wave.shape)
+
+    # The curls are applied along the two vectors that form the plane perpendicular to the hair
+    global_nudging = (sin_wave+sin_noise)*hair_normals[0][:,np.newaxis] + (cos_wave+cos_noise)*hair_normals[1][:,np.newaxis]
+    return global_nudging
 
 def TNB2qvecs(T, N, B):
     # Quaternion representing the rotation of the 1st canonical vector (1,0,0) to the tangents. 
@@ -129,18 +186,20 @@ def calculate_frenet_curls(head_file, ncurls, max_amp, max_freq):
     points, normals = get_hair_points(strands_xyz, strands_rot, strands_scale, n_strands, n_gaussians_per_strand, n_hair_gaussians)
     amps = np.linspace(max_amp, 0, ncurls, endpoint=False)[::-1]
     freqs= np.linspace(max_freq, 0, ncurls, endpoint=False)[::-1]
-    for amp in amps:
-        for freq in freqs:
+    amps_freqs = np.vstack((amps, freqs))
+    rots = np.zeros((ncurls, ncurls, strands_rot.shape[0], strands_rot.shape[1], strands_rot.shape[2]), dtype=np.float16)
+
+    for i, amp in enumerate(amps):
+        for j, freq in enumerate(freqs):
             global_nudging = get_curls(amp, freq, normals, n_gaussians_per_strand, n_strands)
             new_points = points+global_nudging
-            rots = calculate_rot_quat(new_points)
-            
-            amp_path = os.path.join(os.path.dirname(head_file), f'rots/{amp:.8f}')
-            if not os.path.exists(amp_path):
-                os.makedirs(amp_path)
+            rot = calculate_rot_quat(new_points)
+            rot = np.float16(rot)
+            rots[i,j] = rot
 
-            freq_path = os.path.join(amp_path, f'{freq:.8f}.npy')
-            np.save(freq_path,  rots)
+    np.save(os.path.join(os.path.dirname(head_file), 'rots.npy'), rots)
+    np.save(os.path.join(os.path.dirname(head_file), 'amps_freqs.npy'), amps_freqs)
+
         
 def main(args):
     for arg in vars(args):
@@ -152,13 +211,13 @@ def main(args):
         return 0
 
     if args.input.endswith('.npy'):
-        calculate_frenet_frame_t(args.input, args)
         print('Frenet frames are calculated and saved for *single* frame.')
+        calculate_frenet_frame_t(args.input, args)
     else:
+        print('Frenet frames are calculated and saved for all frames.')
         frames = os.listdir(args.input)
         for i in range(len(frames)):
             calculate_frenet_frame_t(args.input + frames[i], args)
-        print('Frenet frames are calculated and saved for all frames.')
 
 
     return 0

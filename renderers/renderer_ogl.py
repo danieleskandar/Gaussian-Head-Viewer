@@ -58,21 +58,21 @@ def _sort_gaussian_torch(gaus, view_mat):
     return index
 
 
-# Decide which sort to use
-_sort_gaussian = None
-try:
-    import torch
-    if not torch.cuda.is_available():
-        raise ImportError
-    print("Detect torch cuda installed, will use torch as sorting backend")
-    _sort_gaussian = _sort_gaussian_torch
-except ImportError:
-    try:
-        import cupy as cp
-        print("Detect cupy installed, will use cupy as sorting backend")
-        _sort_gaussian = _sort_gaussian_cupy
-    except ImportError:
-        _sort_gaussian = _sort_gaussian_cpu
+# Decide which sort to use. Commented as now we are using torch and will fail with nvidia cards
+_sort_gaussian = _sort_gaussian_cpu
+# try:
+#     import torch
+#     if not torch.cuda.is_available():
+#         raise ImportError
+#     print("Detect torch cuda installed, will use torch as sorting backend")
+#     _sort_gaussian = _sort_gaussian_torch
+# except ImportError:
+#     try:
+#         import cupy as cp
+#         print("Detect cupy installed, will use cupy as sorting backend")
+#         _sort_gaussian = _sort_gaussian_cupy
+#     except ImportError:
+#         _sort_gaussian = _sort_gaussian_cpu
 
 
 class GaussianRenderBase:
