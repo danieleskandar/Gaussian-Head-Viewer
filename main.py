@@ -107,6 +107,7 @@ g_invert_z_plane = []
 g_hairstyles = ["Original File", "Selected File"]
 g_flame_model = []
 g_flame_param = []
+g_file_flame_param = []
 
 g_strand_index = "None"
 g_gaussian_index = "None"
@@ -120,9 +121,9 @@ def reset_flame_param(n_expr):
     return {
         'expr': torch.zeros(1, n_expr),
         'rotation': torch.zeros(1, 3),
-        'neck': torch.zeros(1, 3),
-        'jaw': torch.zeros(1, 3),
-        'eyes': torch.zeros(1, 6),
+        'neck_pose': torch.zeros(1, 3),
+        'jaw_pose': torch.zeros(1, 3),
+        'eyes_pose': torch.zeros(1, 6),
         'translation': torch.zeros(1, 3),
     }
 
@@ -153,7 +154,7 @@ def load_avatar_from_folder(folder_path):
     
 
 def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
-    global gaussians, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians, g_flame_model, g_flame_param
+    global gaussians, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians, g_flame_model, g_flame_param, g_file_flame_param
 
     # Fill controller arrays
     g_head_avatars.append(head_avatar)
@@ -199,7 +200,8 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
     g_selected_hairstyle.append(0)
     g_hairstyles.append("Head Avatar " + str(len(g_selected_hairstyle)))
     g_flame_model.append(flame_model)
-    g_flame_param.append(reset_flame_param(flame_model.n_expr)) if flame_model is not None else g_flame_param.append(None)
+    g_flame_param.append(flame_model.flame_param) if flame_model is not None else g_flame_param.append(None)
+    g_file_flame_param.append(g_flame_param[-1])
 
     if len(g_head_avatars) == 1:
         # Append head avatar to the gaussians object sent to the shader
@@ -875,9 +877,14 @@ def update_hairstyle(hairstyle_points, hairstyle_constants, j):
     # Update features
     update_displacements_and_opacities()
 
-def update_flame_gaussians():
+def update_flame_gaussians(reset_to_zero=False, from_file=False):
     i = g_selected_head_avatar_index
     start = get_start_index(i)
+
+    if reset_to_zero:
+        g_flame_param[i] = reset_flame_param(g_flame_model[i].n_expr)
+    if from_file:
+        g_flame_param[i] = copy.deepcopy(g_file_flame_param[i])
 
     g_flame_model[i].update_mesh_by_param_dict(g_flame_param[i])
 
@@ -1078,7 +1085,7 @@ def main():
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
         g_show_hair, g_show_head, g_hair_color, g_head_color, g_show_hair_color, g_show_head_color, g_hair_scale, \
-        g_wave_frequency, g_wave_amplitude, g_frame, g_flame_model, g_flame_param
+        g_wave_frequency, g_wave_amplitude, g_frame, g_flame_model, g_flame_param, g_file_flame_param
 
     imgui.create_context()
     if args.hidpi:
@@ -1355,7 +1362,7 @@ def main():
             imgui.text("- Modify facial expressions and reset to default.")
             imgui.end()
 
-        # FLAME Winwo
+        # FLAME Window
         if g_show_flame_win:
             imgui.begin("FLAME", True)
             if g_selected_head_avatar_index != -1 and g_flame_model[g_selected_head_avatar_index] is not None:
@@ -1363,27 +1370,27 @@ def main():
                 imgui.text("JOINTS")
                 imgui.separator()
 
-                neck = tuple(g_flame_param[g_selected_head_avatar_index]["neck"].squeeze().tolist())
+                neck = tuple(g_flame_param[g_selected_head_avatar_index]["neck_pose"].squeeze().tolist())
                 changed, neck = imgui.slider_float3("neck", *neck, min_value=-0.5, max_value=0.5, format="%.2f")
                 if changed:
-                    g_flame_param[g_selected_head_avatar_index]["neck"] = torch.tensor(neck).view(1, 3)
+                    g_flame_param[g_selected_head_avatar_index]["neck_pose"] = torch.tensor(neck).view(1, 3)
                     update_flame_gaussians()
                     update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
-                jaw = tuple(g_flame_param[g_selected_head_avatar_index]["jaw"].squeeze().tolist())
+                jaw = tuple(g_flame_param[g_selected_head_avatar_index]["jaw_pose"].squeeze().tolist())
                 changed, jaw = imgui.slider_float3("jaw", *jaw, min_value=-0.5, max_value=0.5, format="%.2f")
                 if changed:
-                    g_flame_param[g_selected_head_avatar_index]["jaw"] = torch.tensor(jaw).view(1, 3)
+                    g_flame_param[g_selected_head_avatar_index]["jaw_pose"] = torch.tensor(jaw).view(1, 3)
                     update_flame_gaussians()
                     update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
-                eyes = tuple(g_flame_param[g_selected_head_avatar_index]["eyes"][0, 3:].squeeze().tolist())
+                eyes = tuple(g_flame_param[g_selected_head_avatar_index]["eyes_pose"][0, 3:].squeeze().tolist())
                 changed, eyes = imgui.slider_float3("eyes", *eyes, min_value=-0.5, max_value=0.5, format="%.2f")
                 if changed:
-                    g_flame_param[g_selected_head_avatar_index]["eyes"][0, :3] = torch.tensor(eyes).view(1, 3)
-                    g_flame_param[g_selected_head_avatar_index]["eyes"][0, 3:] = torch.tensor(eyes).view(1, 3)
+                    g_flame_param[g_selected_head_avatar_index]["eyes_pose"][0, :3] = torch.tensor(eyes).view(1, 3)
+                    g_flame_param[g_selected_head_avatar_index]["eyes_pose"][0, 3:] = torch.tensor(eyes).view(1, 3)
                     update_flame_gaussians()
                     update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
@@ -1403,11 +1410,17 @@ def main():
 
                 imgui.separator()
 
-                if imgui.button(label='Reset FLAME'):
-                    g_flame_param[g_selected_head_avatar_index] = reset_flame_param(g_flame_model[g_selected_head_avatar_index].n_expr)
-                    update_flame_gaussians()
+                if imgui.button(label='Reset to Zero'):
+                    update_flame_gaussians(reset_to_zero=True)
                     update_avatar_planes()
-                    g_renderer.update_gaussian_data(gaussians)                 
+                    g_renderer.update_gaussian_data(gaussians)    
+
+                imgui.same_line()
+                
+                if imgui.button(label='Reset from File'):
+                    update_flame_gaussians(from_file=True)
+                    update_avatar_planes()
+                    g_renderer.update_gaussian_data(gaussians)           
 
             imgui.end()
 
