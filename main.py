@@ -552,6 +552,9 @@ def update_means(head_avatar_index):
     start = get_start_index(i)
     d = get_displacement(i)
 
+    xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
+    gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
+
     # Handling case for which there are no hair strands. Able to open a generic gaussian ply
     # And the case where there's zero frequency or amplitude
     if (g_hair_points[i].shape[0] != 0  and
@@ -559,6 +562,7 @@ def update_means(head_avatar_index):
 
         # New gaussians from new points either from file or calculated on the spot
         if (isinstance(g_hair_amps_freqs[i], np.ndarray)):
+            gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
             amps_freqs = g_hair_amps_freqs[i]
             amps, freqs = amps_freqs[0], amps_freqs[1]
             rxyzs = g_hair_curls[i]
@@ -567,46 +571,40 @@ def update_means(head_avatar_index):
             idx_j = np.argmin(abs(freqs - g_wave_frequency[i]))
             rxyzs_ij = rxyzs[idx_i, idx_j]
             
-            rot = rxyzs_ij[:,:4]
-            xyz = rxyzs_ij[:,4:7] + d
+            rot_curls = rxyzs_ij[:,:4]
+            xyz_curls = np.copy(rxyzs_ij[:,4:7])
+            xyz_curls[:,0] += d
             x_scales = rxyzs_ij[:,7]
-            scales = np.dstack([x_scales, x_scales/10, x_scales/10])[0]
+            scale_curls = np.dstack([x_scales, x_scales/10, x_scales/10])[0]
 
-            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz
-            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot
-            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scales*g_hair_scale[i]
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls
+            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls*g_hair_scale[i]
         else:
-            xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
             f, _ = get_frame(i)
 
-            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f + d
-            gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
-            gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f
+            gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
 
             points = np.copy(g_hair_points[i])
             points[:,:,0] += d
             global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
             new_points = points+global_nudging
-            xyz, x_scales = calculate_pts_scal(new_points)
+            xyz_curls, x_scales = calculate_pts_scal(new_points)
             x_scales = x_scales.flatten()
-            scale = np.dstack([x_scales, x_scales/10, x_scales/10])
-            rot = calculate_rot_quat(new_points)
+            scale_curls = np.dstack([x_scales, x_scales/10, x_scales/10])
+            rot_curls = calculate_rot_quat(new_points)
 
-            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz.reshape(-1,3)
-            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot.reshape(-1,4)
-            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale.reshape(-1,3)*g_hair_scale[i]
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls.reshape(-1,3)
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls.reshape(-1,4)
+            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls.reshape(-1,3)*g_hair_scale[i]
     
     else:
-        xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
-        gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
-
         f, _ = get_frame(i)
         gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f
         gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
-
         gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
         gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
-
     g_means[i] = np.mean(gaussians.xyz[start:start+g_n_gaussians[i]], axis=0)
 
 def get_displacement(head_avatar_index):
@@ -1588,6 +1586,12 @@ def main():
                     curls, amps_freqs = get_hair_rots_amps_freqs(i)
                     g_hair_curls[i] = curls
                     g_hair_amps_freqs[i] = amps_freqs
+
+                imgui.same_line()
+
+                if imgui.button(label='Compute curls on the fly'):
+                    g_hair_curls[i] = None
+                    g_hair_amps_freqs[i] = None
 
                 changed, g_hair_scale[i] = imgui.slider_float("Hair Scale", g_hair_scale[i], 0.5, 2, "Hair Scale = %.3f")
                 if changed:
