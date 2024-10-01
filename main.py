@@ -73,7 +73,8 @@ g_show_head_avatars_win = True
 g_checkboxes = []
 g_head_avatars = []
 g_folder_paths = []
-g_frame_folder = []
+g_frame_file = []
+g_frames = []
 g_hairstyle_file = []
 g_curls_file = []
 g_file_paths = []
@@ -162,7 +163,8 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
     g_means.append(np.mean(head_avatar.xyz, axis=0))
     g_max_distance.append(np.max(np.linalg.norm(head_avatar.xyz - g_means[-1], axis=1)))
     g_folder_paths.append(path.rsplit('/', 1)[0])
-    g_frame_folder.append("")
+    g_frame_file.append("")
+    g_frames.append(None)
     g_hairstyle_file.append("")
     g_curls_file.append("")
     g_file_paths.append(path)
@@ -530,10 +532,15 @@ def update_hair_scale():
 def update_frame():
     i = g_selected_head_avatar_index
     start = get_start_index(i)
-    xyz, rot = get_frame(i)
-    g_head_avatars[i].xyz[:g_n_hair_gaussians[i]] = xyz
-    g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = rot
-    gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot
+    frames_array = g_frames[i]
+    if frames_array is not None:
+        frame = min(g_frame[i], frames_array.shape[0]-1)
+        frame_array = frames_array[frame]
+        g_head_avatars[i].xyz[:g_n_hair_gaussians[i]] = frame_array[:, :3]
+        g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = frame_array[:, 3:7]
+        xscale = frame_array[:, 7]
+        scale = np.dstack([xscale, xscale/10, xscale/10])
+        g_head_avatars[i].scale[:g_n_hair_gaussians[i]] = scale
     update_means(i)
 
 def get_hair_rots_amps_freqs(idx):
@@ -554,6 +561,7 @@ def update_means(head_avatar_index):
 
     xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
     gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
+    gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
 
     # Handling case for which there are no hair strands. Able to open a generic gaussian ply
     # And the case where there's zero frequency or amplitude
@@ -581,11 +589,6 @@ def update_means(head_avatar_index):
             gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls
             gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls*g_hair_scale[i]
         else:
-            f, _ = get_frame(i)
-
-            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f
-            gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
-
             points = np.copy(g_hair_points[i])
             points[:,:,0] += d
             global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
@@ -600,9 +603,6 @@ def update_means(head_avatar_index):
             gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls.reshape(-1,3)*g_hair_scale[i]
     
     else:
-        f, _ = get_frame(i)
-        gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f
-        gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
         gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
         gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
     g_means[i] = np.mean(gaussians.xyz[start:start+g_n_gaussians[i]], axis=0)
@@ -677,19 +677,13 @@ def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
     global_nudging = (sin_wave+sin_noise)*hair_normals[0][:,np.newaxis] + (cos_wave+cos_noise)*hair_normals[1][:,np.newaxis]
     return global_nudging
 
-def get_frame(head_avatar_index):
+def get_frames(head_avatar_index):
     i = head_avatar_index
     try:
-        xyz = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-        rot = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
-        rot = TNB2qvecs(rot[:,:,0], rot[:,:,1], rot[:,:,2]).reshape(-1,4)
-        _, _, scale, _, _ = g_head_avatars[i].get_data()
-        hair_points, hair_normals = get_hair_points(xyz, rot, scale, g_n_strands[i], g_n_gaussians_per_strand[i], g_n_hair_gaussians[i])
-        g_hair_points[i] = hair_points
-        g_hair_normals[i] = hair_normals
+        frame_vals = np.load(g_frame_file[i])
+        g_frames[i] = frame_vals
     except Exception as e:
-        xyz, rot, _, _, _ = g_head_avatars[i].get_data()
-    return xyz[:g_n_hair_gaussians[i], :].astype(np.float32), rot[:g_n_hair_gaussians[i], :].astype(np.float32)
+        g_frames[i] = None
 
 def cut_hair():
     # Get hair gaussians of selected head avatar
@@ -1680,13 +1674,15 @@ def main():
                 imgui.text("FRAMES")
                 imgui.separator()
 
-                if imgui.button(label='Select Frames Folder'):
-                    g_frame_folder[g_selected_head_avatar_index] = filedialog.askdirectory(
-                        title="Select Folder",
-                        initialdir="./models/"
+                if imgui.button(label='Select Frames File'):
+                    g_frame_file[g_selected_head_avatar_index] = filedialog.askopenfilename(
+                        title="Select File",
+                        initialdir="./models/",
+                        filetypes=[('npy file', '.npy')]
                     )
+                    get_frames(i)
 
-                imgui.text(f"Selected Frames Folder: {g_frame_folder[g_selected_head_avatar_index]}")
+                imgui.text(f"Selected Frames File: {g_frame_file[g_selected_head_avatar_index]}")
 
                 changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
                 if changed:
@@ -1750,9 +1746,9 @@ def main():
             if init_positions_and_sizes:
                 imgui.set_window_position_labeled("Control", 1420, 25)
                 imgui.set_window_size_named("Control", 495, 265)
-                imgui.set_window_position_labeled("Camera Control", 1420, 935)
+                imgui.set_window_position_labeled("Camera Control", 1920, 665)
                 imgui.set_window_size_named("Camera Control", 495, 170)
-                imgui.set_window_position_labeled("General help", 1420, 295)
+                imgui.set_window_position_labeled("General help", 1920, 25)
                 imgui.set_window_size_named("General help", 495, 635)
                 imgui.set_window_position_labeled("Head Avatars", 5, 870)
                 imgui.set_window_size_named("Head Avatars", 880, 255)
