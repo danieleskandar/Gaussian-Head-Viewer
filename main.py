@@ -935,6 +935,16 @@ def update_avatar_planes():
     g_renderer.update_y_plane(g_y_plane[i]) if g_y_plane[i] != old_y_plane else None
     g_renderer.update_z_plane(g_z_plane[i]) if g_z_plane[i] != old_z_plane else None
 
+########
+# Utils
+########
+
+def get_screen_dimensions():
+    monitor = glfw.get_primary_monitor()
+    video_mode = glfw.get_video_mode(monitor)
+
+    return video_mode.size.width, video_mode.size.height
+
 #####################
 
 def impl_glfw_init():
@@ -1135,43 +1145,75 @@ def main():
 
         # imgui ui
         if imgui.begin_main_menu_bar():
+            screen_width, screen_height = get_screen_dimensions()
+
             if imgui.begin_menu("Window", True):
                 clicked, g_show_control_win = imgui.menu_item(
                     "Show Control", None, g_show_control_win
                 )
                 if clicked and g_show_control_win:
-                    imgui.set_window_position_labeled("Control", 1420, 25)
-                    imgui.set_window_size_named("Control", 495, 265)
+                    imgui.set_window_position_labeled(
+                        "Control", int(1420 / 1920 * screen_width), int(25 / 1200 * screen_height)
+                    )
+                    imgui.set_window_size_named(
+                        "Control", int(495 / 1920 * screen_width), int(265 / 1200 * screen_height)
+                    )
+
                 clicked, g_show_help_win = imgui.menu_item(
                     "Show Help", None, g_show_help_win
                 )
                 if clicked and g_show_help_win:
-                    imgui.set_window_position_labeled("General help", 1420, 295)
-                    imgui.set_window_size_named("General help", 495, 635)
+                    imgui.set_window_position_labeled(
+                        "General help", int(1420 / 1920 * screen_width), int(295 / 1200 * screen_height)
+                    )
+                    imgui.set_window_size_named(
+                        "General help", int(495 / 1920 * screen_width), int(635 / 1200 * screen_height)
+                    )
+
                 clicked, g_show_camera_win = imgui.menu_item(
                     "Show Camera Control", None, g_show_camera_win
                 )
                 if clicked and g_show_camera_win:
-                    imgui.set_window_position_labeled("Camera Control", 1420, 935)
-                    imgui.set_window_size_named("Camera Control", 495, 170)
+                    imgui.set_window_position_labeled(
+                        "Camera Control", int(1420 / 1920 * screen_width), int(935 / 1200 * screen_height)
+                    )
+                    imgui.set_window_size_named(
+                        "Camera Control", int(495 / 1920 * screen_width), int(170 / 1200 * screen_height)
+                    )
+
                 clicked, g_show_head_avatars_win = imgui.menu_item(
                     "Show Head Avatars", None, g_show_head_avatars_win
                 )
                 if clicked and g_show_head_avatars_win:
-                    imgui.set_window_position_labeled("Head Avatars", 5, 850)
-                    imgui.set_window_size_named("Head Avatars", 880, 255)
+                    imgui.set_window_position_labeled(
+                        "Head Avatars", int(5 / 1920 * screen_width), int(850 / 1200 * screen_height)
+                    )
+                    imgui.set_window_size_named(
+                        "Head Avatars", int(880 / 1920 * screen_width), int(240 / 1200 * screen_height)
+                    )
+
                 clicked, g_show_head_avatar_controller_win = imgui.menu_item(
                     "Show Head Avatar Controller", None, g_show_head_avatar_controller_win
                 )
                 if clicked and g_show_head_avatar_controller_win:
-                    imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
-                    imgui.set_window_size_named("Head Avatar Controller", 880, 820)
+                    imgui.set_window_position_labeled(
+                        "Head Avatar Controller", int(5 / 1920 * screen_width), int(25 / 1200 * screen_height)
+                    )
+                    imgui.set_window_size_named(
+                        "Head Avatar Controller", int(880 / 1920 * screen_width), int(835 / 1200 * screen_height)
+                    )
+
                 clicked, g_show_flame_win = imgui.menu_item(
                     "Show FLAME", None, g_show_flame_win
                 )
                 if clicked and g_show_flame_win:
-                    imgui.set_window_position_labeled("FLAME", 890, 25)
-                    imgui.set_window_size_named("FLAME", 525, 310)
+                    imgui.set_window_position_labeled(
+                        "FLAME", int(890 / 1920 * screen_width), int(25 / 1200 * screen_height)
+                    )
+                    imgui.set_window_size_named(
+                        "FLAME", int(525 / 1920 * screen_width), int(310 / 1200 * screen_height)
+                    )
+                
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
@@ -1744,18 +1786,28 @@ def main():
             imgui.end()
 
             if init_positions_and_sizes:
-                imgui.set_window_position_labeled("Control", 1420, 25)
-                imgui.set_window_size_named("Control", 495, 265)
-                imgui.set_window_position_labeled("Camera Control", 1920, 665)
-                imgui.set_window_size_named("Camera Control", 495, 170)
-                imgui.set_window_position_labeled("General help", 1920, 25)
-                imgui.set_window_size_named("General help", 495, 635)
-                imgui.set_window_position_labeled("Head Avatars", 5, 870)
-                imgui.set_window_size_named("Head Avatars", 880, 255)
-                imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
-                imgui.set_window_size_named("Head Avatar Controller", 880, 840)
-                imgui.set_window_position_labeled("FLAME", 890, 25)
-                imgui.set_window_size_named("FLAME", 525, 310)
+                screen_width, screen_height = get_screen_dimensions()
+
+                # Set window positions and sizes relative to the screen dimensions
+                imgui.set_window_position_labeled("Control", int(1420 / 1920 * screen_width), int(25 / 1200 * screen_height))
+                imgui.set_window_size_named("Control", int(495 / 1920 * screen_width), int(265 / 1200 * screen_height))
+
+                imgui.set_window_position_labeled("Camera Control", int(1420 / 1920 * screen_width), int(935 / 1200 * screen_height))
+                imgui.set_window_size_named("Camera Control", int(495 / 1920 * screen_width), int(170 / 1200 * screen_height))
+
+                imgui.set_window_position_labeled("General help", int(1420 / 1920 * screen_width), int(295 / 1200 * screen_height))
+                imgui.set_window_size_named("General help", int(495 / 1920 * screen_width), int(635 / 1200 * screen_height))
+
+                imgui.set_window_position_labeled("Head Avatars", int(5 / 1920 * screen_width), int(865 / 1200 * screen_height))
+                imgui.set_window_size_named("Head Avatars", int(880 / 1920 * screen_width), int(240 / 1200 * screen_height))
+
+                imgui.set_window_position_labeled("Head Avatar Controller", int(5 / 1920 * screen_width), int(25 / 1200 * screen_height))
+                imgui.set_window_size_named("Head Avatar Controller", int(880 / 1920 * screen_width), int(835 / 1200 * screen_height))
+
+                imgui.set_window_position_labeled("FLAME", int(890 / 1920 * screen_width), int(25 / 1200 * screen_height))
+                imgui.set_window_size_named("FLAME", int(525 / 1920 * screen_width), int(310 / 1200 * screen_height))
+
+                # Disable init_positions_and_sizes after setup
                 init_positions_and_sizes = False
 
         imgui.render()
