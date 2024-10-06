@@ -73,8 +73,10 @@ g_show_head_avatars_win = True
 g_checkboxes = []
 g_head_avatars = []
 g_folder_paths = []
-g_frame_folder = []
+g_frame_file = []
+g_frames = []
 g_hairstyle_file = []
+g_curls_file = []
 g_file_paths = []
 g_n_gaussians = []
 g_n_strands = []
@@ -83,7 +85,7 @@ g_n_hair_gaussians = []
 g_max_distance = []
 g_means = []
 g_hair_points = []
-g_hair_rots = []
+g_hair_curls = []
 g_hair_amps_freqs = []
 g_hair_normals = []
 g_z_max = 1
@@ -161,8 +163,10 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
     g_means.append(np.mean(head_avatar.xyz, axis=0))
     g_max_distance.append(np.max(np.linalg.norm(head_avatar.xyz - g_means[-1], axis=1)))
     g_folder_paths.append(path.rsplit('/', 1)[0])
-    g_frame_folder.append("")
+    g_frame_file.append("")
+    g_frames.append(None)
     g_hairstyle_file.append("")
+    g_curls_file.append("")
     g_file_paths.append(path)
     g_n_gaussians.append(head_avatar.xyz.shape[0])
     g_n_strands.append(head_avatar_constants[0])
@@ -172,8 +176,8 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
     hair_points, hair_normals = get_hair_points(head_avatar.xyz, head_avatar.rot, head_avatar.scale, g_n_strands[-1], g_n_gaussians_per_strand[-1], g_n_hair_gaussians[-1])
     g_hair_points.append(hair_points)
     g_hair_normals.append(hair_normals)
-    rots, amps_freqs = get_hair_rots_amps_freqs(path)
-    g_hair_rots.append(rots)
+    curls, amps_freqs = get_hair_rots_amps_freqs(-1)
+    g_hair_curls.append(curls)
     g_hair_amps_freqs.append(amps_freqs)
     g_show_hair.append(True)
     g_show_head.append(True)
@@ -528,18 +532,24 @@ def update_hair_scale():
 def update_frame():
     i = g_selected_head_avatar_index
     start = get_start_index(i)
-    xyz, rot = get_frame(i)
-    g_head_avatars[i].xyz[:g_n_hair_gaussians[i]] = xyz
-    g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = rot
-    gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot
+    frames_array = g_frames[i]
+    if frames_array is not None:
+        frame = min(g_frame[i], frames_array.shape[0]-1)
+        frame_array = frames_array[frame]
+        g_head_avatars[i].xyz[:g_n_hair_gaussians[i]] = frame_array[:, :3]
+        g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = frame_array[:, 3:7]
+        xscale = frame_array[:, 7]
+        scale = np.dstack([xscale, xscale/10, xscale/10])
+        g_head_avatars[i].scale[:g_n_hair_gaussians[i]] = scale
     update_means(i)
 
-def get_hair_rots_amps_freqs(path):
-    currdir = os.path.dirname(path)
+def get_hair_rots_amps_freqs(idx):
+    currdir = os.path.dirname(g_file_paths[idx])
     try:
-        rot = np.load(os.path.join(currdir, "rxyzs.npy"))
-        amps_freqs = np.load(os.path.join(currdir, "amps_freqs.npy"))
-        return np.float16(rot), np.float16(amps_freqs)
+        arrays = np.load(g_curls_file[idx])
+        rxyzs = arrays['values']
+        amps_freqs = arrays['idxs']
+        return np.float16(rxyzs), np.float16(amps_freqs)
 
     except FileNotFoundError:
         return None, None
@@ -549,6 +559,10 @@ def update_means(head_avatar_index):
     start = get_start_index(i)
     d = get_displacement(i)
 
+    xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
+    gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
+    gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
+
     # Handling case for which there are no hair strands. Able to open a generic gaussian ply
     # And the case where there's zero frequency or amplitude
     if (g_hair_points[i].shape[0] != 0  and
@@ -556,54 +570,41 @@ def update_means(head_avatar_index):
 
         # New gaussians from new points either from file or calculated on the spot
         if (isinstance(g_hair_amps_freqs[i], np.ndarray)):
+            gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
             amps_freqs = g_hair_amps_freqs[i]
             amps, freqs = amps_freqs[0], amps_freqs[1]
-            rxyzs = g_hair_rots[i]
+            rxyzs = g_hair_curls[i]
             
             idx_i = np.argmin(abs(amps - g_wave_amplitude[i]))
             idx_j = np.argmin(abs(freqs - g_wave_frequency[i]))
             rxyzs_ij = rxyzs[idx_i, idx_j]
             
-            rot = rxyzs_ij[:,:4]
-            xyz = rxyzs_ij[:,4:7] + d
+            rot_curls = rxyzs_ij[:,:4]
+            xyz_curls = np.copy(rxyzs_ij[:,4:7])
+            xyz_curls[:,0] += d
             x_scales = rxyzs_ij[:,7]
-            scales = np.dstack([x_scales, x_scales/10, x_scales/10])[0]
+            scale_curls = np.dstack([x_scales, x_scales/10, x_scales/10])[0]
 
-            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz
-            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot
-            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scales*g_hair_scale[i]
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls
+            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls*g_hair_scale[i]
         else:
-            xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
-            f, _ = get_frame(i)
-
-            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f + d
-            gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
-            gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
-
             points = np.copy(g_hair_points[i])
             points[:,:,0] += d
             global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
             new_points = points+global_nudging
-            xyz, x_scales = calculate_pts_scal(new_points)
+            xyz_curls, x_scales = calculate_pts_scal(new_points)
             x_scales = x_scales.flatten()
-            scale = np.dstack([x_scales, x_scales/10, x_scales/10])
-            rot = calculate_rot_quat(new_points)
+            scale_curls = np.dstack([x_scales, x_scales/10, x_scales/10])
+            rot_curls = calculate_rot_quat(new_points)
 
-            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz.reshape(-1,3)
-            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot.reshape(-1,4)
-            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale.reshape(-1,3)*g_hair_scale[i]
+            gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls.reshape(-1,3)
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls.reshape(-1,4)
+            gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls.reshape(-1,3)*g_hair_scale[i]
     
     else:
-        xyz, rot, scale, _, _ = g_head_avatars[i].get_data()
-        gaussians.xyz[start:start+g_n_gaussians[i], :] = xyz
-
-        f, _ = get_frame(i)
-        gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = f
-        gaussians.xyz[start:start+g_n_gaussians[i], 0] += d
-
         gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
         gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
-
     g_means[i] = np.mean(gaussians.xyz[start:start+g_n_gaussians[i]], axis=0)
 
 def get_displacement(head_avatar_index):
@@ -676,19 +677,13 @@ def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
     global_nudging = (sin_wave+sin_noise)*hair_normals[0][:,np.newaxis] + (cos_wave+cos_noise)*hair_normals[1][:,np.newaxis]
     return global_nudging
 
-def get_frame(head_avatar_index):
+def get_frames(head_avatar_index):
     i = head_avatar_index
     try:
-        xyz = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_mean_frenet.npy").reshape(-1, 3)
-        rot = np.load(f"{g_frame_folder[i]}//frame_{g_frame[i]}_rot_frenet.npy").transpose((0, 1, 3, 2))
-        rot = TNB2qvecs(rot[:,:,0], rot[:,:,1], rot[:,:,2]).reshape(-1,4)
-        _, _, scale, _, _ = g_head_avatars[i].get_data()
-        hair_points, hair_normals = get_hair_points(xyz, rot, scale, g_n_strands[i], g_n_gaussians_per_strand[i], g_n_hair_gaussians[i])
-        g_hair_points[i] = hair_points
-        g_hair_normals[i] = hair_normals
+        frame_vals = np.load(g_frame_file[i])
+        g_frames[i] = frame_vals
     except Exception as e:
-        xyz, rot, _, _, _ = g_head_avatars[i].get_data()
-    return xyz[:g_n_hair_gaussians[i], :].astype(np.float32), rot[:g_n_hair_gaussians[i], :].astype(np.float32)
+        g_frames[i] = None
 
 def cut_hair():
     # Get hair gaussians of selected head avatar
@@ -862,7 +857,7 @@ def update_hairstyle(hairstyle_points, hairstyle_constants, j):
     g_n_gaussians_per_strand[i] = n_gaussians_per_strand
     g_n_hair_gaussians[i] = n_hair_gaussians
     g_hair_points[i], g_hair_normals[i] = get_hair_points(g_head_avatars[i].xyz, g_head_avatars[i].rot, g_head_avatars[i].scale, n_strands, n_gaussians_per_strand, n_hair_gaussians)
-    g_hair_rots[i] = g_hair_rots[j]
+    g_hair_curls[i] = g_hair_curls[j]
     g_hair_amps_freqs[i] = g_hair_amps_freqs[j]
     g_hair_scale[i] = 1 if j == -1 else g_hair_scale[j]
     g_wave_frequency[i] = 0 if j == -1 else g_wave_frequency[j]
@@ -1080,7 +1075,7 @@ def main():
     global gaussians, g_show_head_avatars_win, g_checkboxes, g_cutting_mode, \
         g_coloring_mode, g_keep_sh, g_selected_color, g_max_cutting_distance, g_max_coloring_distance, g_x_min, g_x_max, g_x_plane, g_invert_x_plane, \
         g_y_min, g_y_max, g_y_plane, g_invert_y_plane, g_z_min, g_z_max, g_z_plane, g_invert_z_plane, g_hair_points, g_hair_normals, g_file_paths, \
-        g_file_path, g_selected_hairstyle, g_hairstyles, g_hairstyle_file, g_hair_rots, g_hair_amps_freqs
+        g_file_path, g_selected_hairstyle, g_hairstyles, g_hairstyle_file, g_curls_file, g_hair_curls, g_hair_amps_freqs
 
     # Head Avatar Controller Global Variables
     global g_show_head_avatar_controller_win, g_selected_head_avatar_index, g_selected_head_avatar_name, \
@@ -1576,6 +1571,22 @@ def main():
                 imgui.text("HAIR SCALING & WAVES")
                 imgui.separator()
 
+                if imgui.button(label='Select Curls File'):
+                    g_curls_file[g_selected_head_avatar_index] = filedialog.askopenfilename(
+                        title="Select Curls File",
+                        initialdir = f"./models/",
+                        filetypes=[('npz file', '.npz')]
+                    )
+                    curls, amps_freqs = get_hair_rots_amps_freqs(i)
+                    g_hair_curls[i] = curls
+                    g_hair_amps_freqs[i] = amps_freqs
+
+                imgui.same_line()
+
+                if imgui.button(label='Compute curls on the fly'):
+                    g_hair_curls[i] = None
+                    g_hair_amps_freqs[i] = None
+
                 changed, g_hair_scale[i] = imgui.slider_float("Hair Scale", g_hair_scale[i], 0.5, 2, "Hair Scale = %.3f")
                 if changed:
                     update_hair_scale()
@@ -1663,13 +1674,15 @@ def main():
                 imgui.text("FRAMES")
                 imgui.separator()
 
-                if imgui.button(label='Select Frames Folder'):
-                    g_frame_folder[g_selected_head_avatar_index] = filedialog.askdirectory(
-                        title="Select Folder",
-                        initialdir="./models/"
+                if imgui.button(label='Select Frames File'):
+                    g_frame_file[g_selected_head_avatar_index] = filedialog.askopenfilename(
+                        title="Select File",
+                        initialdir="./models/",
+                        filetypes=[('npy file', '.npy')]
                     )
+                    get_frames(i)
 
-                imgui.text(f"Selected Frames Folder: {g_frame_folder[g_selected_head_avatar_index]}")
+                imgui.text(f"Selected Frames File: {g_frame_file[g_selected_head_avatar_index]}")
 
                 changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
                 if changed:
@@ -1733,14 +1746,14 @@ def main():
             if init_positions_and_sizes:
                 imgui.set_window_position_labeled("Control", 1420, 25)
                 imgui.set_window_size_named("Control", 495, 265)
-                imgui.set_window_position_labeled("Camera Control", 1420, 935)
+                imgui.set_window_position_labeled("Camera Control", 1920, 665)
                 imgui.set_window_size_named("Camera Control", 495, 170)
-                imgui.set_window_position_labeled("General help", 1420, 295)
+                imgui.set_window_position_labeled("General help", 1920, 25)
                 imgui.set_window_size_named("General help", 495, 635)
-                imgui.set_window_position_labeled("Head Avatars", 5, 850)
+                imgui.set_window_position_labeled("Head Avatars", 5, 870)
                 imgui.set_window_size_named("Head Avatars", 880, 255)
                 imgui.set_window_position_labeled("Head Avatar Controller", 5, 25)
-                imgui.set_window_size_named("Head Avatar Controller", 880, 820)
+                imgui.set_window_size_named("Head Avatar Controller", 880, 840)
                 imgui.set_window_position_labeled("FLAME", 890, 25)
                 imgui.set_window_size_named("FLAME", 525, 310)
                 init_positions_and_sizes = False

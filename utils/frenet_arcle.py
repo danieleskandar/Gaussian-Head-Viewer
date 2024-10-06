@@ -4,10 +4,55 @@
 import numpy as np
 import argparse
 import os 
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
+
 try:
     from utils import util_gau
 except:
     import util_gau
+
+def balanced_kmeans_clustering(data, n_clusters, balance_threshold=0.1):
+    # Standardize the data
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(data)
+    
+    # Perform initial K-Means clustering
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    labels = kmeans.fit_predict(scaled_data)
+    
+    # Count the number of points in each cluster
+    cluster_counts = np.bincount(labels)
+    target_size = len(data) // n_clusters
+    
+    # Identify clusters that are too large or too small
+    large_clusters = np.where(cluster_counts > target_size * (1 + balance_threshold))[0]
+    small_clusters = np.where(cluster_counts < target_size * (1 - balance_threshold))[0]
+    
+    # Reassign points from large clusters to small clusters
+    for large_cluster in large_clusters:
+        points_to_move = np.where(labels == large_cluster)[0]
+        np.random.shuffle(points_to_move)
+        
+        for point in points_to_move:
+            if len(small_clusters) == 0:
+                break
+            
+            # Find the nearest small cluster
+            distances = [np.linalg.norm(scaled_data[point] - kmeans.cluster_centers_[c]) for c in small_clusters]
+            nearest_small_cluster = small_clusters[np.argmin(distances)]
+            
+            # Reassign the point
+            labels[point] = nearest_small_cluster
+            cluster_counts[large_cluster] -= 1
+            cluster_counts[nearest_small_cluster] += 1
+            
+            # Check if the small cluster is now balanced
+            if cluster_counts[nearest_small_cluster] >= target_size * (1 - balance_threshold):
+                small_clusters = small_clusters[small_clusters != nearest_small_cluster]
+    
+    return labels
 
 def get_hair_points(xyz, rot, scale, n_strands, n_gaussians_per_strand, n_hair_gaussians):
     if n_strands == 0:
@@ -38,16 +83,16 @@ def get_hair_points(xyz, rot, scale, n_strands, n_gaussians_per_strand, n_hair_g
     disps = np.stack((normals, binormals))
     return strands, disps
 
-def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
+def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_clusters):
     t = np.linspace(0, 2, n_gaussians_per_strand+1)[:,np.newaxis].T
 
     # Fixing random seed for future random initial frequency and overall noise
     np.random.seed(0)
-    random_init_freq = np.random.uniform(low=0, high=2*np.pi, size=(n_strands,1))
+    random_init_freq = np.random.uniform(low=0, high=2*np.pi, size=(n_clusters,1))
     # Parameter t with random initial values so it doesn't look too uniform
     t_strands = t+random_init_freq
     # Multiplier to t value so it curls either way
-    random_dir = np.random.choice([-1, 1], size=(n_strands,1))
+    random_dir = np.random.choice([-1, 1], size=(n_clusters,1))
 
     # Quadratic so hair roots are not displaced
     amplitude = (t**2*amp)[:,:,np.newaxis]
@@ -60,9 +105,8 @@ def get_curls(amp, freq, hair_normals, n_gaussians_per_strand, n_strands):
         sin_noise = np.random.normal(0, amp/30, size=sin_wave.shape)
         cos_noise = np.random.normal(0, amp/30, size=cos_wave.shape)
 
-    # The curls are applied along the two vectors that form the plane perpendicular to the hair
-    global_nudging = (sin_wave+sin_noise)*hair_normals[0][:,np.newaxis] + (cos_wave+cos_noise)*hair_normals[1][:,np.newaxis]
-    return global_nudging
+    local_nudging = sin_wave+sin_noise, cos_wave+cos_noise
+    return local_nudging
 
 def TNB2qvecs(T, N, B):
     # Quaternion representing the rotation of the 1st canonical vector (1,0,0) to the tangents. 
@@ -170,7 +214,7 @@ def calculate_frenet_frame_t(inp_strands, args):
     np.save(rot_frenet, R)
     np.save(scale_frenet, scales)
 
-def calculate_frenet_curls(head_file, ncurls, max_amp, max_freq):
+def calculate_frenet_curls(head_file, ncurls, n_clusters, max_amp, max_freq):
     head_avatar, head_avatar_constants = util_gau.load_ply(head_file)
     n_strands, n_gaussians_per_strand = head_avatar_constants
     n_hair_gaussians = n_strands*n_gaussians_per_strand
@@ -183,25 +227,41 @@ def calculate_frenet_curls(head_file, ncurls, max_amp, max_freq):
     strands_scale = head_avatar.scale[:n_hair_gaussians].reshape(n_strands, n_gaussians_per_strand, -1)
 
     points, normals = get_hair_points(strands_xyz, strands_rot, strands_scale, n_strands, n_gaussians_per_strand, n_hair_gaussians)
+    # Index of cluster each strand belongs to
+    labels = balanced_kmeans_clustering(points[:,0,:], n_clusters)
+
+    print("Finished balanced k-means clustering")
+
     amps = np.linspace(max_amp, 0, ncurls, endpoint=False)[::-1]
     freqs= np.linspace(max_freq, 0, ncurls, endpoint=False)[::-1]
-    amps_freqs = np.vstack((amps, freqs))
     rxyzs = np.zeros((ncurls, ncurls,n_strands*n_gaussians_per_strand, strands_rot.shape[2]+strands_xyz.shape[2]+1), dtype=np.float16)
 
-    for i, amp in enumerate(amps):
-        for j, freq in enumerate(freqs):
-            global_nudging = get_curls(amp, freq, normals, n_gaussians_per_strand, n_strands)
-            new_points = points+global_nudging
-            xyz, xscale = calculate_pts_scal(new_points)
-            rot = calculate_rot_quat(new_points)
+    with tqdm(total=ncurls * ncurls) as pbar:
+        for i, amp in enumerate(amps):
+            for j, freq in enumerate(freqs):
+                local_nudging_clusters = get_curls(amp, freq, normals, n_gaussians_per_strand, n_clusters)
+                new_points = points.copy()
 
-            rot, xyz, scale = np.float16(rot), np.float16(xyz), np.float16(xscale)
-            rxyzs[i,j,:,:4] = rot.reshape(-1,4)
-            rxyzs[i,j,:,4:7] = xyz.reshape(-1,3)
-            rxyzs[i,j,:,7] = scale.flatten()
+                # Getting the strands assigned to each cluster and applying the local curls 
+                # along the two vectors that form the plane perpendicular to the hair
+                for cluster in range(n_clusters):
+                    cluster_mask = (labels == cluster)
+                    global_nudging = local_nudging_clusters[0][cluster][np.newaxis, :]*normals[0][cluster_mask][:,np.newaxis] + \
+                        local_nudging_clusters[1][cluster][np.newaxis, :]*normals[1][cluster_mask][:,np.newaxis]
+                    new_points[cluster_mask] += global_nudging
 
-    np.save(os.path.join(os.path.dirname(head_file), 'rxyzs.npy'), rxyzs)
-    np.save(os.path.join(os.path.dirname(head_file), 'amps_freqs.npy'), amps_freqs)
+                xyz, xscale = calculate_pts_scal(new_points)
+                rot = calculate_rot_quat(new_points)
+
+                rot, xyz, scale = np.float16(rot), np.float16(xyz), np.float16(xscale)
+                rxyzs[i,j,:,:4] = rot.reshape(-1,4)
+                rxyzs[i,j,:,4:7] = xyz.reshape(-1,3)
+                rxyzs[i,j,:,7] = scale.flatten()
+                pbar.update(1)
+
+    amps_freqs = np.vstack((amps, freqs))
+    path = os.path.join(os.path.dirname(head_file), 'rxyzs_{}.npz'.format(str(n_clusters)))
+    np.savez(path, values=rxyzs, idxs = amps_freqs)
 
         
 def main(args):
@@ -209,8 +269,8 @@ def main(args):
         print(f'{arg}: {getattr(args, arg)}')
     
     if args.n_samples != 0:
-        print(f'Calculating {str(args.n_samples)} curls with amplitude 0 to {args.max_amp} and frequency 0 to {args.max_freq}.')
-        calculate_frenet_curls(args.input, args.n_samples, args.max_amp, args.max_freq)
+        print(f'Calculating {str(args.n_samples*args.n_samples)} curls with amplitude 0 to {args.max_amp}, frequency 0 to {args.max_freq}, and {args.n_clusters} clusters.')
+        calculate_frenet_curls(args.input, args.n_samples, args.n_clusters, args.max_amp, args.max_freq)
         return 0
 
     if args.input.endswith('.npy'):
@@ -231,6 +291,7 @@ if __name__ == "__main__":
     parser.add_argument('input', type=str)
     parser.add_argument('--rot_format', choices=['quat', 'mat'], help='if frenet is for init, use quat, for animation use matrix', default='mat', type=str)
     parser.add_argument('--n_samples', default=0, type=int)
+    parser.add_argument('--n_clusters', default=10, type=int)
     parser.add_argument('--max_amp', default=0.025, type=float)
     parser.add_argument('--max_freq', default=3, type=float)
 
