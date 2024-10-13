@@ -115,20 +115,6 @@ g_strand_index = "None"
 g_gaussian_index = "None"
 g_gaussian_strand_index = "None"
 
-###################
-# FLAME Parameters
-###################
-
-def reset_flame_param(n_expr):
-    return {
-        'expr': torch.zeros(1, n_expr),
-        'rotation': torch.zeros(1, 3),
-        'neck_pose': torch.zeros(1, 3),
-        'jaw_pose': torch.zeros(1, 3),
-        'eyes_pose': torch.zeros(1, 6),
-        'translation': torch.zeros(1, 3),
-    }
-
 ######################
 # Head Avatars Actions
 ######################
@@ -205,7 +191,7 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
     g_hairstyles.append("Head Avatar " + str(len(g_selected_hairstyle)))
     g_flame_model.append(flame_model)
     g_flame_param.append(flame_model.flame_param) if flame_model is not None else g_flame_param.append(None)
-    g_file_flame_param.append(g_flame_param[-1])
+    g_file_flame_param.append(copy.deepcopy(g_flame_param[-1]))
 
     if len(g_head_avatars) == 1:
         # Append head avatar to the gaussians object sent to the shader
@@ -877,7 +863,12 @@ def update_flame_gaussians(reset_to_zero=False, from_file=False):
     start = get_start_index(i)
 
     if reset_to_zero:
-        g_flame_param[i] = reset_flame_param(g_flame_model[i].n_expr)
+        g_flame_param[i]['expr'] = torch.zeros(1, g_flame_model[i].n_expr)
+        g_flame_param[i]['rotation'] = torch.zeros(1, 3)
+        g_flame_param[i]['neck_pose'] = torch.zeros(1, 3)
+        g_flame_param[i]['jaw_pose'] = torch.zeros(1, 3)
+        g_flame_param[i]['eyes_pose'] = torch.zeros(1, 6)
+        g_flame_param[i]['translation'] = torch.zeros(1, 3)
     if from_file:
         g_flame_param[i] = copy.deepcopy(g_file_flame_param[i])
 
