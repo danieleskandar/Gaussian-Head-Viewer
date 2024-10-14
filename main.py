@@ -19,6 +19,7 @@ from plyfile import PlyData, PlyElement
 
 import torch
 from flame.flame_gaussian_model import FlameGaussianModel
+from flame.lbs import *
 
 # Add the directory containing main.py to the Python path
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -110,6 +111,8 @@ g_hairstyles = ["Original File", "Selected File"]
 g_flame_model = []
 g_flame_param = []
 g_file_flame_param = []
+g_binding = []
+g_canonical_flame_hair = []
 
 g_strand_index = "None"
 g_gaussian_index = "None"
@@ -142,7 +145,7 @@ def load_avatar_from_folder(folder_path):
     
 
 def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
-    global gaussians, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians, g_flame_model, g_flame_param, g_file_flame_param
+    global gaussians, g_z_min, g_z_max, g_folder_paths, g_file_paths, g_n_gaussians, g_n_strands, g_n_gaussians_per_strand, g_n_hair_gaussians, g_flame_model, g_flame_param, g_file_flame_param, g_binding, g_canonical_flame_hair
 
     # Fill controller arrays
     g_head_avatars.append(head_avatar)
@@ -189,9 +192,20 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
     g_invert_z_plane.append(False)
     g_selected_hairstyle.append(0)
     g_hairstyles.append("Head Avatar " + str(len(g_selected_hairstyle)))
+    
+    # FLAME Gaussian class object
     g_flame_model.append(flame_model)
-    g_flame_param.append(flame_model.flame_param) if flame_model is not None else g_flame_param.append(None)
+    # FLAME class object 
+    g_flame_param.append(flame_model.flame_param if flame_model else None)
+    # FLAME parameters
     g_file_flame_param.append(copy.deepcopy(g_flame_param[-1]))
+    # Binding
+    hair_xyz = head_avatar.xyz[:g_n_hair_gaussians[-1], :]
+    binding = compute_binding(flame_model, hair_xyz, head_avatar_constants) if flame_model else None
+    g_binding.append(binding)
+    # Canonical hair
+    canonical_flame_hair = compute_canonical_flame_hair(flame_model, hair_xyz, binding) if flame_model else None
+    g_canonical_flame_hair.append(canonical_flame_hair)
 
     if len(g_head_avatars) == 1:
         # Append head avatar to the gaussians object sent to the shader
@@ -858,7 +872,7 @@ def update_hairstyle(hairstyle_points, hairstyle_constants, j):
     # Update features
     update_displacements_and_opacities()
 
-def update_flame_gaussians(reset_to_zero=False, from_file=False):
+def update_flame_head_gaussians(reset_to_zero=False, from_file=False):
     i = g_selected_head_avatar_index
     start = get_start_index(i)
 
@@ -874,13 +888,166 @@ def update_flame_gaussians(reset_to_zero=False, from_file=False):
 
     g_flame_model[i].update_mesh_by_param_dict(g_flame_param[i])
 
-    gaussians.xyz[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_xyz.detach().numpy().astype(np.float32)
+    g_head_avatars[i].xyz[g_n_hair_gaussians[i]:, :] = g_flame_model[i].get_xyz.detach().numpy().astype(np.float32)
     gaussians.rot[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_rotation.detach().numpy().astype(np.float32)
     gaussians.scale[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_scaling.detach().numpy().astype(np.float32)
     gaussians.opacity[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = g_flame_model[i].get_opacity.detach().numpy().astype(np.float32)
     sh = g_flame_model[i].get_features.detach().numpy().astype(np.float32)
     sh = sh.reshape(sh.shape[0], -1)
     gaussians.sh[start+g_n_hair_gaussians[i]:start+g_n_gaussians[i], :] = sh
+
+def update_flame_hair_gaussians():
+    i = g_selected_head_avatar_index
+    start = get_start_index(i)
+
+    flame_model = g_flame_model[i]
+    binding = g_binding[i]
+
+    # Initialize canonical FLAME hair
+    canonical_flame_hair = copy.deepcopy(g_canonical_flame_hair[i])
+
+    # Extract FLAME parameters
+    shape = g_flame_param[i]['shape'][None, ...]
+    static_offset = g_flame_param[i]['static_offset']
+    expr = g_flame_param[i]['expr']
+    rotation = g_flame_param[i]['rotation']
+    neck = g_flame_param[i]['neck_pose']
+    jaw = g_flame_param[i]['jaw_pose']
+    eyes = g_flame_param[i]['eyes_pose']
+    translation = g_flame_param[i]['translation']
+
+    # Extract FLAME model class variables
+    v_shaped = flame_model.verts_cano
+    posedirs = flame_model.flame_model.posedirs
+    J_regressor = flame_model.flame_model.J_regressor
+    parents = flame_model.flame_model.parents
+    lbs_weights = flame_model.flame_model.lbs_weights
+    dtype = flame_model.flame_model.dtype
+    
+    # Calculate shape blend shapes
+    betas = torch.cat([shape, expr], dim=1)
+    shape_blend_shapes = blend_shapes(betas, flame_model.flame_model.shapedirs)
+
+    # Calculate pose blend shapes
+    pose = torch.cat([rotation, neck, jaw, eyes], dim=1)
+    batch_size = pose.shape[0]
+    device = pose.device
+    J = vertices2joints(J_regressor, v_shaped) # Get the joints (N x J x 3)
+    ident = torch.eye(3, dtype=dtype, device=device) # N x J x 3 x 3
+    rot_mats = batch_rodrigues(pose.view(-1, 3), dtype=dtype).view([batch_size, -1, 3, 3])
+    pose_feature = (rot_mats[:, 1:, :, :] - ident).view([batch_size, -1])
+    pose_blend_shapes = torch.matmul(pose_feature, posedirs).view(batch_size, -1, 3) # (N x P) x (P, V * 3) -> N x V x 3
+
+    # Add pose blend shapes, shape blend shapes, and static offset
+    selected_pose_blend_shapes = pose_blend_shapes.squeeze(0).cpu().numpy()[binding]
+    selected_shape_blend_shapes = shape_blend_shapes.squeeze(0).cpu().numpy()[binding]
+    selected_static_offset = static_offset.cpu().squeeze(0).numpy()[binding]
+    canonical_flame_hair = canonical_flame_hair + selected_pose_blend_shapes + selected_shape_blend_shapes + selected_static_offset
+
+    # Convert to homogeneous coordinates
+    canonical_flame_hair = np.hstack([canonical_flame_hair, np.ones((canonical_flame_hair.shape[0], 1))])
+
+    # Get the global joint location
+    J_transformed, A = batch_rigid_transform(rot_mats, J, parents, dtype=dtype)
+
+    # Skinning
+    W = lbs_weights.unsqueeze(dim=0).expand([batch_size, -1, -1]) # W is N x V x (J + 1)
+    num_joints = J_regressor.shape[0]
+    T = torch.matmul(W, A.view(batch_size, num_joints, 16)).view(batch_size, -1, 4, 4) # (N x V x (J + 1)) x (N x (J + 1) x 16)
+    selected_T = T[0, binding].cpu().numpy() # Select the correct matrices based on the binding indices
+    canonical_flame_hair = np.einsum('ijk,ik->ij', selected_T, canonical_flame_hair) # Apply the transformation
+    canonical_flame_hair = canonical_flame_hair[:, :3]
+
+    # Add translation
+    translation = translation.cpu().numpy()
+    canonical_flame_hair = canonical_flame_hair + translation
+
+    # Update means
+    g_head_avatars[i].xyz[:g_n_hair_gaussians[i], :] = canonical_flame_hair
+
+def compute_binding(flame_model, hair_xyz, hairstyle_constants):
+    # Extract shaped vertices
+    shaped_vertices = flame_model.verts[0]
+
+    # Extract strand roots
+    n_gaussians_per_strand = hairstyle_constants[1]
+    strand_roots = hair_xyz[::n_gaussians_per_strand]
+    strand_roots = torch.tensor(strand_roots, dtype=torch.float32)
+
+    # Compute distances to shaped vertcies
+    distances = torch.cdist(strand_roots, shaped_vertices)
+
+    # Find indices of closest shaped vertices
+    closest_indices = torch.argmin(distances, dim=1)
+
+    # Create binding array
+    binding = torch.repeat_interleave(closest_indices, n_gaussians_per_strand).numpy()
+
+    return binding
+
+def compute_canonical_flame_hair(flame_model, hair_xyz, binding):
+    # Initialize canonical FLAME hair
+    canonical_flame_hair = copy.deepcopy(hair_xyz)
+
+    # Extract FLAME parameters
+    shape = flame_model.flame_param['shape'][None, ...]
+    static_offset = flame_model.flame_param['static_offset']
+    expr = flame_model.flame_param['expr']
+    rotation = flame_model.flame_param['rotation']
+    neck = flame_model.flame_param['neck_pose']
+    jaw = flame_model.flame_param['jaw_pose']
+    eyes = flame_model.flame_param['eyes_pose']
+    translation = flame_model.flame_param['translation']
+
+    # Extract FLAME model class variables
+    v_shaped = flame_model.verts_cano
+    posedirs = flame_model.flame_model.posedirs
+    J_regressor = flame_model.flame_model.J_regressor
+    parents = flame_model.flame_model.parents
+    lbs_weights = flame_model.flame_model.lbs_weights
+    dtype = flame_model.flame_model.dtype
+
+    # Subtract translation
+    translation = translation.cpu().numpy()
+    canonical_flame_hair = canonical_flame_hair - translation
+
+    # Convert to homogeneous coordinates
+    canonical_flame_hair = np.hstack([canonical_flame_hair, np.ones((canonical_flame_hair.shape[0], 1))])
+
+    # Calculate shape blend shapes
+    betas = torch.cat([shape, expr], dim=1)
+    shape_blend_shapes = blend_shapes(betas, flame_model.flame_model.shapedirs)
+
+    # Calculate pose blend shapes
+    pose = torch.cat([rotation, neck, jaw, eyes], dim=1)
+    batch_size = pose.shape[0]
+    device = pose.device
+    J = vertices2joints(J_regressor, v_shaped) # Get the joints (N x J x 3)
+    ident = torch.eye(3, dtype=dtype, device=device) # N x J x 3 x 3
+    rot_mats = batch_rodrigues(pose.view(-1, 3), dtype=dtype).view([batch_size, -1, 3, 3])
+    pose_feature = (rot_mats[:, 1:, :, :] - ident).view([batch_size, -1])
+    pose_blend_shapes = torch.matmul(pose_feature, posedirs).view(batch_size, -1, 3) # (N x P) x (P, V * 3) -> N x V x 3
+
+    # Get the global joint location
+    J_transformed, A = batch_rigid_transform(rot_mats, J, parents, dtype=dtype)
+
+    # Inverse skinning
+    W = lbs_weights.unsqueeze(dim=0).expand([batch_size, -1, -1]) # W is N x V x (J + 1)
+    num_joints = J_regressor.shape[0]
+    T = torch.matmul(W, A.view(batch_size, num_joints, 16)).view(batch_size, -1, 4, 4) # (N x V x (J + 1)) x (N x (J + 1) x 16)
+    T_transposed = T.transpose(-1, -2) # Transpose the full 4x4 transformation matrices in T
+    selected_T = T_transposed[0, binding].cpu().numpy() # Select the correct transposed matrices based on the binding indices
+    canonical_flame_hair = np.einsum('ijk,ik->ij', selected_T, canonical_flame_hair) # Apply the transformation
+    canonical_flame_hair = canonical_flame_hair[:, :3]
+
+    # Subtract pose blend shapes, shape blend shapes, and static offset
+    selected_pose_blend_shapes = pose_blend_shapes.squeeze(0).cpu().numpy()[binding]
+    selected_shape_blend_shapes = shape_blend_shapes.squeeze(0).cpu().numpy()[binding]
+    selected_static_offset = static_offset.cpu().squeeze(0).numpy()[binding]
+    canonical_flame_hair = canonical_flame_hair - selected_pose_blend_shapes - selected_shape_blend_shapes - selected_static_offset
+
+    return canonical_flame_hair
+
 
 def update_avatar_planes():
     i = g_selected_head_avatar_index
@@ -1402,7 +1569,9 @@ def main():
                 changed, neck = imgui.slider_float3("neck", *neck, min_value=-0.5, max_value=0.5, format="%.2f")
                 if changed:
                     g_flame_param[g_selected_head_avatar_index]["neck_pose"] = torch.tensor(neck).view(1, 3)
-                    update_flame_gaussians()
+                    update_flame_head_gaussians()
+                    update_flame_hair_gaussians()
+                    update_means(g_selected_head_avatar_index)
                     update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
@@ -1410,7 +1579,9 @@ def main():
                 changed, jaw = imgui.slider_float3("jaw", *jaw, min_value=-0.5, max_value=0.5, format="%.2f")
                 if changed:
                     g_flame_param[g_selected_head_avatar_index]["jaw_pose"] = torch.tensor(jaw).view(1, 3)
-                    update_flame_gaussians()
+                    update_flame_head_gaussians()
+                    update_flame_hair_gaussians()
+                    update_means(g_selected_head_avatar_index)
                     update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
@@ -1419,7 +1590,9 @@ def main():
                 if changed:
                     g_flame_param[g_selected_head_avatar_index]["eyes_pose"][0, :3] = torch.tensor(eyes).view(1, 3)
                     g_flame_param[g_selected_head_avatar_index]["eyes_pose"][0, 3:] = torch.tensor(eyes).view(1, 3)
-                    update_flame_gaussians()
+                    update_flame_head_gaussians()
+                    update_flame_hair_gaussians()
+                    update_means(g_selected_head_avatar_index)
                     update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)
 
@@ -1432,23 +1605,31 @@ def main():
                 for expr in range(5):
                     changed, g_flame_param[g_selected_head_avatar_index]["expr"][0, expr] = imgui.slider_float(str(expr), g_flame_param[g_selected_head_avatar_index]["expr"][0, expr], min_value=-3, max_value=3, format="%.2f")
                     if changed:
-                        update_flame_gaussians()
+                        update_flame_head_gaussians()
+                        update_flame_hair_gaussians()
+                        update_means(g_selected_head_avatar_index)
                         update_avatar_planes()
                         g_renderer.update_gaussian_data(gaussians)
 
                 imgui.separator()
 
                 if imgui.button(label='Reset to Zero'):
-                    update_flame_gaussians(reset_to_zero=True)
+                    update_flame_head_gaussians(reset_to_zero=True)
+                    update_flame_hair_gaussians()
+                    update_means(g_selected_head_avatar_index)
                     update_avatar_planes()
                     g_renderer.update_gaussian_data(gaussians)    
 
                 imgui.same_line()
                 
                 if imgui.button(label='Reset from File'):
-                    update_flame_gaussians(from_file=True)
+                    update_flame_head_gaussians(from_file=True)
+                    update_flame_hair_gaussians()
+                    update_means(g_selected_head_avatar_index)
                     update_avatar_planes()
-                    g_renderer.update_gaussian_data(gaussians)           
+                    g_renderer.update_gaussian_data(gaussians)  
+            elif g_selected_head_avatar_index != -1:
+                imgui.text("The selected avatar is not a FLAME model.")         
 
             imgui.end()
 
