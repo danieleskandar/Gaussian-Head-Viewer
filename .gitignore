@@ -16,3 +16,4 @@ toy_cuda_gs.py
 cfg*
 *json
 events*
+models

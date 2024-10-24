@@ -562,18 +562,18 @@ def update_frame():
     i = g_selected_head_avatar_index
     start = get_start_index(i)
     frames_array = g_frames[i]
-    if frames_array:
+    if g_frame[i]:
         frame = min(g_frame[i], frames_array.shape[0]-1)
         frame_array = frames_array[frame]
         g_head_avatars[i].xyz[:g_n_hair_gaussians[i]] = frame_array[:, :3]
         g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = frame_array[:, 3:7]
+        gaussians.rot[start:start+g_n_hair_gaussians[i], :] = frame_array[:, 3:7]
         xscale = frame_array[:, 7]
         scale = np.dstack([xscale, xscale/10, xscale/10])
         g_head_avatars[i].scale[:g_n_hair_gaussians[i]] = scale
-    update_means(i)
+        update_means(i)
 
 def get_hair_rots_amps_freqs(idx):
-    currdir = os.path.dirname(g_file_paths[idx])
     try:
         arrays = np.load(g_curls_file[idx])
         rxyzs = arrays['values']
@@ -625,6 +625,10 @@ def update_means(head_avatar_index):
             gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls
             gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls*g_hair_scale[i]
         else:
+            n_strands = g_n_strands[i]
+            n_gaussians_per_strand = g_n_gaussians_per_strand[i]
+            n_hair_gaussians = g_n_hair_gaussians[i]
+            g_hair_points[i], g_hair_normals[i] = get_hair_points(g_head_avatars[i].xyz, g_head_avatars[i].rot, g_head_avatars[i].scale, n_strands, n_gaussians_per_strand, n_hair_gaussians)
             points = np.copy(g_hair_points[i])
             points[:,:,0] += d
             global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
@@ -2020,7 +2024,8 @@ def main():
 
                 imgui.text(f"Selected Frames File: {g_frame_file[g_selected_head_avatar_index]}")
 
-                changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, 100, "Frame = %d")
+                last_frame = g_frames[i].shape[0] if isinstance(g_frames[i], np.ndarray) else 0
+                changed, g_frame[i] = imgui.slider_int("Frame", g_frame[i], 0, last_frame, "Frame = %d")
                 if changed:
                     update_frame()
                     update_avatar_planes()
