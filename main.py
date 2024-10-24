@@ -569,7 +569,8 @@ def update_frame():
         g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = frame_array[:, 3:7]
         gaussians.rot[start:start+g_n_hair_gaussians[i], :] = frame_array[:, 3:7]
         xscale = frame_array[:, 7]
-        scale = np.dstack([xscale, xscale/10, xscale/10])
+        scales = np.ones_like(xscale) * 0.0001
+        scale = np.dstack([xscale, scales, scales])
         g_head_avatars[i].scale[:g_n_hair_gaussians[i]] = scale
         update_means(i)
 
@@ -619,7 +620,8 @@ def update_means(head_avatar_index):
             xyz_curls = np.copy(rxyzs_ij[:,4:7])
             xyz_curls[:,0] += d
             x_scales = rxyzs_ij[:,7]
-            scale_curls = np.dstack([x_scales, x_scales/10, x_scales/10])[0]
+            scales = np.ones_like(x_scales) * 0.0001
+            scale_curls = np.dstack([x_scales, scales, scales])
 
             gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls
             gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls
@@ -635,7 +637,8 @@ def update_means(head_avatar_index):
             new_points = points+global_nudging
             xyz_curls, x_scales = calculate_pts_scal(new_points)
             x_scales = x_scales.flatten()
-            scale_curls = np.dstack([x_scales, x_scales/10, x_scales/10])
+            scales = np.ones_like(x_scales) * 0.0001
+            scale_curls = np.dstack([x_scales, scales, scales])
             rot_curls = calculate_rot_quat(new_points)
 
             gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls.reshape(-1,3)
