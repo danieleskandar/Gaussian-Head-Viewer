@@ -45,18 +45,34 @@ Finally, for the frames to be loaded as a single numpy array and getting a speed
 python utils/frame_packer.py my+path --rot_format {quat, mat}
 ```
 
-Features
+### Features
 
 1. Hair coloring
-![Hair coloring](videos/coloring.gif)
+<p align="center">
+  <img src="videos/coloring.gif" width="70%" height="70%"/>
+</p>
+
 2. Hair cutting
-![Hair cutting](videos/cutting.gif)
+<p align="center">
+  <img src="videos/cutting.gif" width="70%" height="70%"/>
+</p>
+
 3. Export ply file with edited color and cut
+
 4. Curly hair effect 
-![Curly Hair effect](videos/curls.gif)
+<p align="center">
+  <img src="videos/curls.gif" width="70%" height="70%"/>
+</p>
+
 5. Dynamical gaussians for hair dynamics
-![Dynamic avatar](videos/frames.gif)
+<p align="center">
+  <img src="videos/frames.gif" width="70%" height="70%"/>
+</p>
+
 6. Axes view as renderer
-<img src="/videos/axes.gif" width="40%" height="40%"/>
+<div align="center">
+  <img src="/videos/axes.gif" width="40%" height="40%"/>
+</div>
+
 7. Display multiple heads
 8. Show or hide hair and head
