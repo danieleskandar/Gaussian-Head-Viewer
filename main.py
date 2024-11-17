@@ -1078,8 +1078,8 @@ def compute_canonical_flame_hair(flame_model, hair_xyz, binding):
     W = lbs_weights.unsqueeze(dim=0).expand([batch_size, -1, -1]) # W is N x V x (J + 1)
     num_joints = J_regressor.shape[0]
     T = torch.matmul(W, A.view(batch_size, num_joints, 16)).view(batch_size, -1, 4, 4) # (N x V x (J + 1)) x (N x (J + 1) x 16)
-    T_transposed = T.transpose(-1, -2) # Transpose the full 4x4 transformation matrices in T
-    selected_T = T_transposed[0, binding].cpu().numpy() # Select the correct transposed matrices based on the binding indices
+    T_inverted = torch.linalg.inv(T) # Invert the full 4x4 transformation matrices in T
+    selected_T = T_inverted[0, binding].cpu().numpy() # Select the correct transposed matrices based on the binding indices
     canonical_flame_hair = np.einsum('ijk,ik->ij', selected_T, canonical_flame_hair) # Apply the transformation
     canonical_flame_hair = canonical_flame_hair[:, :3]
 
