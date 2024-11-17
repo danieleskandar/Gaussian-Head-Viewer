@@ -12,7 +12,6 @@ toy_cuda_gs.py
 *.npy
 *.ipynb
 *ply
-*gif
 cfg*
 *json
 events*
