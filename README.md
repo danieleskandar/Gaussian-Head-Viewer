@@ -1,7 +1,7 @@
 ## Dynamic Gaussian Visualizer
 
 This is a simple Dynamic Gaussian Splatting Visualizer specialized in head with hair models built with PyOpenGL. It's easy to install with minimum dependencies. The goal of this project is to provide a visualizer focused on head models with hair strands as those in *(paper).* 
-![Banner image](videos/banner.gif)
+![Banner image](gifs/banner.gif)
 
 
 ## Usage
@@ -49,30 +49,35 @@ python utils/frame_packer.py my+path --rot_format {quat, mat}
 
 1. Hair coloring
 <p align="center">
-  <img src="videos/coloring.gif" width="70%" height="70%"/>
+  <img src="gifs/coloring.gif" width="70%" height="70%"/>
 </p>
 
 2. Hair cutting
 <p align="center">
-  <img src="videos/cutting.gif" width="70%" height="70%"/>
+  <img src="gifs/cutting.gif" width="70%" height="70%"/>
 </p>
 
-3. Export ply file with edited color and cut
-
-4. Curly hair effect 
+3. Hair swapping
 <p align="center">
-  <img src="videos/curls.gif" width="70%" height="70%"/>
+  <img src="gifs/swap.gif" width="70%" height="70%"/>
 </p>
 
-5. Dynamical gaussians for hair dynamics
+4. Export ply file with edited color and cut
+
+5. Curly hair effect 
 <p align="center">
-  <img src="videos/frames.gif" width="70%" height="70%"/>
+  <img src="gifs/curls.gif" width="70%" height="70%"/>
 </p>
 
-6. Axes view as renderer
+6. Dynamical gaussians for hair dynamics
+<p align="center">
+  <img src="gifs/frames.gif" width="70%" height="70%"/>
+</p>
+
+7. Axes view as renderer
 <div align="center">
-  <img src="/videos/axes.gif" width="40%" height="40%"/>
+  <img src="/gifs/axes.gif" width="40%" height="40%"/>
 </div>
 
-7. Display multiple heads
-8. Show or hide hair and head
+8. Display multiple heads
+9. Show or hide hair and head
