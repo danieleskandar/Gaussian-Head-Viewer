@@ -39,10 +39,10 @@ g_renderer_idx = BACKEND_OGL
 g_renderer: GaussianRenderBase = g_renderer_list[g_renderer_idx]
 g_scale_modifier = 1.
 g_auto_sort = True
-g_show_control_win = True
-g_show_help_win = True
-g_show_camera_win = True
-g_show_flame_win = True
+g_show_control_win = False
+g_show_help_win = False
+g_show_camera_win = False
+g_show_flame_win = False
 g_render_mode_tables = ["Ray", "Gaussian Ball", "Flat Ball", "Billboard", "Depth", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 8
 g_file_path = "Default Naive 4 Gaussian"
@@ -834,8 +834,8 @@ def color_hair():
     final_indices = np.where(opacity_mask)[0][np.where(x_mask & y_mask & z_mask)[0][np.where(distance_mask)[0]]]
 
     # Color the closest hair gaussians
-    g_head_avatars[i].sh[final_indices, 0:3] = g_selected_color
-    gaussians.sh[start:start+g_n_gaussians[i], :][final_indices, 0:3] = g_selected_color
+    g_head_avatars[i].sh[final_indices, 0:3] = list((np.asarray(g_selected_color) - 0.5) / 0.28209)
+    gaussians.sh[start:start+g_n_gaussians[i], :][final_indices, 0:3] = list((np.asarray(g_selected_color) - 0.5) / 0.28209)
     if not g_keep_sh:
         g_head_avatars[i].sh[final_indices, 3:] = 0
         gaussians.sh[start:start+g_n_gaussians[i], :][final_indices, 3:] = 0
@@ -1268,6 +1268,7 @@ def mouse_button_callback(window, button, action, mod):
                 if g_coloring_mode:
                     g_selected_color = selected_color
                     g_renderer.update_selected_color(g_selected_color)
+                    g_selected_color = list(np.asarray(g_selected_color) * 0.28209 + 0.5)
 
     # Cut or Color
     if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.RELEASE:
@@ -2003,7 +2004,7 @@ def main():
 
                 changed, g_selected_color = imgui.color_edit3("Selected Color", *g_selected_color)
                 if changed:
-                    g_renderer.update_selected_color(g_selected_color)
+                    g_renderer.update_selected_color(list((np.asarray(g_selected_color) - 0.5) / 0.28209))
 
                 changed, g_max_coloring_distance = imgui.slider_float("Coloring Area", g_max_coloring_distance, 0.01, 0.5, "%.2f")
                 if changed:
