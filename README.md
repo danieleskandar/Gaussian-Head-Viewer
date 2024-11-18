@@ -33,16 +33,16 @@ The Gaussian file loader is compatible with the official implementation but work
 python utils/util.py my_path --n_strands=12000 --n_gaussians_per_strand=31
 ```
 
-For the curls feature to load the rotation matrices instead of computing them on the fly, the following command can be run to pre-compute these where `nsamples` is the number of evenly spaced values for both amplitude and frequency, and `max_amp` and `max_freq` :
+For the curls feature to load the rotation matrices instead of computing them on the fly, the following command can be run to pre-compute these where `n_samples` is the number of evenly spaced values for both amplitude and frequency, and `max_amp` and `max_freq` are the inclusive maximum values for amplitude and frequency. To achieve a more natural behavior, `n_clusters` defines the number of hair clusters; each hair cluster has roughly the same number of hair strands which have the same initial frequency thus curling in the same way:
 
 ```
-python utils/frenet_arcle.py my_path n_samples=0 --max_amp=0.025 --max_freq=3
+python utils/frenet_arcle.py my_path n_samples=10 --n_clusters=2 --max_amp=0.025 --max_freq=3
 ```
 
-Finally, for the frames to be loaded as a single numpy array and getting a speedup by reducing the number of read operations the following python script takes the directory in which the files `frame_#_mean_frenet.npy`, `frame_#_rot_frenet.npy` , and `frame_#_scale_frenet.npy` and whether the rotation is represented as a rotation matrix or a quaternion:
+Finally, for the frames to be loaded as a single numpy array and getting a speedup by reducing the number of read operations the following python script takes the directory in which the files `frame_#_mean_frenet.npy`, `frame_#_rot_frenet.npy` , and `frame_#_scale_frenet.npy` and whether the rotation is represented as a rotation matrix or a quaternion in the original files:
 
 ```
-python utils/frame_packer.py my+path --rot_format {quat, mat}
+python utils/frame_packer.py my_path --rot_format {quat, mat}
 ```
 
 ### Features

@@ -22,20 +22,20 @@ def main(args):
             xyz = np.load(f"{args.path}//frame_{str(frame+1)}_mean_frenet.npy").reshape(-1, 3)
             rot = np.load(f"{args.path}//frame_{str(frame+1)}_rot_frenet.npy").transpose((0, 1, 3, 2))
             rot = TNB2qvecs(rot[:,:,0], rot[:,:,1], rot[:,:,2]).reshape(-1,4)
-            scale = np.load(f"{args.path}//frame_{str(frame+1)}_scale_frenet.npy").reshape(-1, 3)
+            scale = np.load(f"{args.path}//frame_{str(frame+1)}_scale_frenet.npy").reshape(n_gaussians, 31, -1)
 
             frame_array[frame, :, :3] = xyz
             frame_array[frame, :, 3:7] = rot
-            frame_array[frame, :, 7] = scale
+            frame_array[frame, :, 7] = scale.flatten() if scale.shape[2]==1 else scale[:,:,0].flatten()
     else:
         for frame in range(n_frames):
             xyz = np.load(f"{args.path}//frame_{str(frame+1)}_mean_frenet.npy").reshape(-1, 3)
             rot = np.load(f"{args.path}//frame_{str(frame+1)}_rot_frenet.npy").reshape(-1,4)
-            scale = np.load(f"{args.path}//frame_{str(frame+1)}_scale_frenet.npy").flatten()
+            scale = np.load(f"{args.path}//frame_{str(frame+1)}_scale_frenet.npy").reshape(n_gaussians, 31, -1)
 
             frame_array[frame, :, :3] = xyz
             frame_array[frame, :, 3:7] = rot
-            frame_array[frame, :, 7] = scale
+            frame_array[frame, :, 7] = scale.flatten() if scale.shape[2]==1 else scale[:,:,0].flatten()
         
 
     path = os.path.join(os.path.dirname(os.path.dirname(args.path)), "frames.npy")
@@ -46,7 +46,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(conflict_handler='resolve')
     parser.add_argument('path', type=str)
-    parser.add_argument('--rot_format', choices=['quat', 'mat'], help='Quaternion if your rotation files are as such or mat otherwise', default='mat', type=str)
+    parser.add_argument('--rot_format', choices=['quat', 'mat'], help='Format of rotation in input files, either rotation matrix (mat) or quaternion (quat)', default='mat', type=str)
 
     args, _ = parser.parse_known_args()
     args = parser.parse_args()
