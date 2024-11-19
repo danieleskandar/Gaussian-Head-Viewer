@@ -24,9 +24,11 @@ Launch viewer:
 python main.py
 ```
 
+Refer to the help window for GUI instructions.
+
 ## Models
 
-The Gaussian file loader is compatible with the official implementation and works best with models as described in _(paper)_. You can download sample models from [here](https://drive.google.com/file/d/1xwkqxQoLfkvDqnNHPqKXFU2KNDkx6-Ad/view?usp=drive_link)
+The Gaussian file loader is compatible with the official implementation and works best with models as described in _(paper)_. Sample models can be downloaded from [here](https://drive.google.com/file/d/1xwkqxQoLfkvDqnNHPqKXFU2KNDkx6-Ad/view?usp=drive_link).
 
 For hair strand files, ensure the gaussians' means, scales, and rotations are the first rows in the `.ply` file. To save the number of hair strands (`n_strands`) and the number of gaussians per strand (`n_gaussians_per_strand`), run the following command:
 
