@@ -1,83 +1,87 @@
 ## Dynamic Gaussian Visualizer
 
-This is a simple Dynamic Gaussian Splatting Visualizer specialized in head with hair models built with PyOpenGL. It's easy to install with minimum dependencies. The goal of this project is to provide a visualizer focused on head models with hair strands as those in *(paper).* 
-![Banner image](gifs/banner.gif)
+![Banner image](assets/banner.png)
 
+Dynamic Gaussian Visualizer is a lightweight and specialized tool for visualizing dynamic Gaussian splatting models of human heads with hair. Optimized for compatibility with models referenced in _(paper)_, it enables users to explore and manipulate intricate head models with dynamic hair effects. It uses PyOpenGL, keeps dependencies minimal, and does not require a CUDA GPU.
 
-## Usage
+## Quick Start
 
 Clone the repository:
 
-```
+```bash
 git clone https://github.com/Daniel-Eskandar/Dynamic-Gaussian-Visualizer.git
 ```
 
-Install the dependencies:
+Install dependencies:
 
-```
+```bash
 pip install -r requirements.txt
 ```
 
-Launch the viewer and check how to use UI in the "help" panel.
+Launch viewer:
 
-```
+```bash
 python main.py
 ```
 
-Download models.zip folder from this [Google Drive link](https://drive.google.com/drive/folders/.1ExPZ1vI3E5ZMtiK0IlkiZ2bG6fu5VnoS)
+## Models
 
+The Gaussian file loader is compatible with the official implementation and works best with models as described in _(paper)_. You can download sample models from [here](https://drive.google.com/file/d/1xwkqxQoLfkvDqnNHPqKXFU2KNDkx6-Ad/view?usp=drive_link)
 
-The Gaussian file loader is compatible with the official implementation but works its best with models as in *(paper)*. For files with hair strands it is necessary for these gaussians’ means, scales and rotations to be the first rows in the ply file. Once in this order, the following command can be run to save the number of hair strands, `nhairs`, and number of gaussians per strand, `ngauss_strand` to the ply file:
+For hair strand files, ensure the gaussians' means, scales, and rotations are the first rows in the `.ply` file. To save the number of hair strands (`n_strands`) and the number of gaussians per strand (`n_gaussians_per_strand`), run the following command:
 
-```
+```bash
 python utils/util.py my_path --n_strands=12000 --n_gaussians_per_strand=31
 ```
 
-For the curls feature to load the rotation matrices instead of computing them on the fly, the following command can be run to pre-compute these where `n_samples` is the number of evenly spaced values for both amplitude and frequency, and `max_amp` and `max_freq` are the inclusive maximum values for amplitude and frequency. To achieve a more natural behavior, `n_clusters` defines the number of hair clusters; each hair cluster has roughly the same number of hair strands which have the same initial frequency thus curling in the same way:
+To load precomputed rotation matrices for curls (instead of computing them on the fly), use the following command:
 
-```
+```bash
 python utils/frenet_arcle.py my_path n_samples=10 --n_clusters=2 --max_amp=0.025 --max_freq=3
 ```
 
-Finally, for the frames to be loaded as a single numpy array and getting a speedup by reducing the number of read operations the following python script takes the directory in which the files `frame_#_mean_frenet.npy`, `frame_#_rot_frenet.npy` , and `frame_#_scale_frenet.npy` and whether the rotation is represented as a rotation matrix or a quaternion in the original files:
+-   `n_samples`: Number of evenly spaced values for both amplitude and frequency.
+-   `max_amp`: Maximum value for amplitude (inclusive).
+-   `max_freq`: Maximum value for frequency (inclusive).
+-   `n_clusters`: Number of hair clusters, each with strands sharing the same frequency and curling behavior.
 
-```
+Finally, for faster loading of frames and reduced read operations, run the following script:
+
+```bash
 python utils/frame_packer.py my_path --rot_format {quat, mat}
 ```
 
-### Features
+It takes the directory containing the files `frame_#_mean_frenet.npy`, `frame_#_rot_frenet.npy` , and `frame_#_scale_frenet.npy`. Specify whether the rotation is represented as a quaternion or rotation matrix (quat or mat).
 
-1. Hair coloring
-<p align="center">
-  <img src="gifs/coloring.gif" width="70%" height="70%"/>
-</p>
+## Features
 
-2. Hair cutting
-<p align="center">
-  <img src="gifs/cutting.gif" width="70%" height="70%"/>
-</p>
+1. Load and display multiple avatars
+   ![Multiple Avatars](assets/multiple_avatars.gif)
 
-3. Hair swapping
-<p align="center">
-  <img src="gifs/swap.gif" width="70%" height="70%"/>
-</p>
+2. Axes view renderer
+   ![Axes Renderer](assets/axes_renderer.gif)
 
-4. Export ply file with edited color and cut
+3. Toggle hair and head visibility
+   ![Visibility](assets/visibility.gif)
 
-5. Curly hair effect 
-<p align="center">
-  <img src="gifs/curls.gif" width="70%" height="70%"/>
-</p>
+4. Hair coloring
+   ![Hair Coloring](assets/hair_coloring.gif)
 
-6. Dynamical gaussians for hair dynamics
-<p align="center">
-  <img src="gifs/frames.gif" width="70%" height="70%"/>
-</p>
+5. Hair cutting
+   ![Hair Cutting](assets/hair_cutting.gif)
 
-7. Axes view as renderer
-<div align="center">
-  <img src="/gifs/axes.gif" width="40%" height="40%"/>
-</div>
+6. Curly hair effect
+   ![Curly Hair](assets/curly_hair.gif)
 
-8. Display multiple heads
-9. Show or hide hair and head
+7. Hair dynamics
+   ![Hair Dynamics](assets/hair_dynamics.gif)
+
+8. Hairstyle swapping
+   ![Hairstyle Swapping](assets/hairstyle_swapping.gif)
+
+9. FLAME control
+   ![FLAME](assets/flame.gif)
+
+## Acknowledgements
+
+We would like to express our gratitude to the original repository [GaussianSplattingViewer](https://github.com/limacv/GaussianSplattingViewer) for providing the foundation upon which this work is built.
