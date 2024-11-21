@@ -47,13 +47,18 @@ python utils/frenet_arcle.py my_path n_samples=10 --n_clusters=2 --max_amp=0.025
 -   `max_freq`: Maximum value for frequency (inclusive).
 -   `n_clusters`: Number of hair clusters, each with strands sharing the same frequency and curling behavior.
 
-Finally, for faster loading of frames and reduced read operations, run the following script:
+For faster loading of frames and reduced read operations, run the following script:
 
 ```bash
 python utils/frame_packer.py my_path --rot_format {quat, mat}
 ```
 
 It takes the directory containing the files `frame_#_mean_frenet.npy`, `frame_#_rot_frenet.npy` , and `frame_#_scale_frenet.npy`. Specify whether the rotation is represented as a quaternion or rotation matrix (quat or mat).
+
+Finally, to load FLAME Gaussian models, use the `Open Head Avatar from Folder` button. The folder should contain two `.ply` files:
+
+-   `hair.ply`: Contains the hair Gaussian data (with `n_strands` and `n_gaussians_per_strand`).
+-   `head.ply`: Contains the head Gaussian data.
 
 ## Features
 
@@ -86,4 +91,5 @@ It takes the directory containing the files `frame_#_mean_frenet.npy`, `frame_#_
 
 ## Acknowledgements
 
-We would like to express our gratitude to the original repository [GaussianSplattingViewer](https://github.com/limacv/GaussianSplattingViewer) for providing the foundation upon which this work is built.
+-   The foundation for this work is based on the original repository [GaussianSplattingViewer](https://github.com/limacv/GaussianSplattingViewer).
+-   Code for binding Gaussian files with the FLAME model was sourced from the [GaussianAvatars](https://github.com/ShenhanQian/GaussianAvatars) repository.
