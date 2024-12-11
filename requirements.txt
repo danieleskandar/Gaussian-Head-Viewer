@@ -10,7 +10,7 @@ roma
 chumpy
 numpy==1.22.3
 torch
-sklearn
+scikit-learn
 tqdm
 
 # In case of error for missing shared files such as radeonsi and swrast running the following command may help
