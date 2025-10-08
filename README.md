@@ -1,15 +1,15 @@
-## Dynamic Gaussian Visualizer
+## Gaussian Head Viewer
 
 ![Banner image](assets/banner.png)
 
-Dynamic Gaussian Visualizer is a lightweight and specialized tool for visualizing dynamic Gaussian splatting models of human heads with hair. Optimized for compatibility with models referenced in _(paper)_, it enables users to explore and manipulate intricate head models with dynamic hair effects. It uses PyOpenGL, keeps dependencies minimal, and does not require a CUDA GPU.
+Gaussian Head Viewer is a lightweight and specialized tool for visualizing dynamic Gaussian splatting models of human heads with hair. Optimized for compatibility with models referenced in _(paper)_, it enables users to explore and manipulate intricate head models with dynamic hair effects. It uses PyOpenGL, keeps dependencies minimal, and does not require a CUDA GPU.
 
 ## Quick Start
 
 Clone the repository:
 
 ```bash
-git clone https://github.com/Daniel-Eskandar/Dynamic-Gaussian-Visualizer.git
+git clone https://github.com/Daniel-Eskandar/Gaussian-Head-Viewer.git
 ```
 
 Install dependencies:
