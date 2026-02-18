@@ -200,14 +200,15 @@ def open_head_avatar(path, head_avatar, head_avatar_constants, flame_model):
         # Append head avatar to the gaussians object sent to the shader
         xyz, rot, scale, opacity, sh = head_avatar.get_data()
         gaussians.xyz = xyz
-        gaussians.rot = rot
+        gaussians.rot = utils.util_gau.pad_to_9(rot)
         gaussians.scale = scale
         gaussians.opacity = np.ones_like(opacity)
         gaussians.sh = sh
     else:
         # Append head avatar to the gaussians object sent to the shader
         gaussians.xyz = np.vstack([gaussians.xyz, head_avatar.xyz]).astype(np.float32)
-        gaussians.rot = np.vstack([gaussians.rot, head_avatar.rot]).astype(np.float32)
+        rot_padded = utils.util_gau.pad_to_9(head_avatar.rot)
+        gaussians.rot = np.vstack([gaussians.rot, rot_padded]).astype(np.float32)
         gaussians.scale = np.vstack([gaussians.scale, head_avatar.scale]).astype(np.float32)
         gaussians.opacity = np.vstack([gaussians.opacity, head_avatar.opacity]).astype(np.float32)
         gaussians.sh = np.vstack([gaussians.sh, head_avatar.sh]).astype(np.float32)
@@ -567,7 +568,7 @@ def update_frame():
         frame_array = frames_array[frame]
         g_head_avatars[i].xyz[:g_n_hair_gaussians[i]] = frame_array[:, :3]
         g_head_avatars[i].rot[:g_n_hair_gaussians[i]] = frame_array[:, 3:7]
-        gaussians.rot[start:start+g_n_hair_gaussians[i], :] = frame_array[:, 3:7]
+        gaussians.rot[start:start+g_n_hair_gaussians[i], :] = utils.util_gau.pad_to_9(frame_array[:, 3:7])
         xscale = frame_array[:, 7]
         scales = np.ones_like(xscale) * 0.0001
         scale = np.dstack([xscale, scales, scales])
@@ -624,13 +625,12 @@ def update_means(head_avatar_index):
             scale_curls = np.dstack([x_scales, scales, scales])
 
             gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls
-            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = utils.util_gau.pad_to_9(rot_curls)
             gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls*g_hair_scale[i]
         else:
             n_strands = g_n_strands[i]
             n_gaussians_per_strand = g_n_gaussians_per_strand[i]
             n_hair_gaussians = g_n_hair_gaussians[i]
-            g_hair_points[i], g_hair_normals[i] = get_hair_points(g_head_avatars[i].xyz, g_head_avatars[i].rot, g_head_avatars[i].scale, n_strands, n_gaussians_per_strand, n_hair_gaussians)
             points = np.copy(g_hair_points[i])
             points[:,:,0] += d
             global_nudging = get_curls(g_wave_amplitude[i], g_wave_frequency[i], g_hair_normals[i], g_n_gaussians_per_strand[i], g_n_strands[i])
@@ -639,14 +639,15 @@ def update_means(head_avatar_index):
             x_scales = x_scales.flatten()
             scales = np.ones_like(x_scales) * 0.0001
             scale_curls = np.dstack([x_scales, scales, scales])
-            rot_curls = calculate_rot_quat(new_points)
+            rot_mats = calculate_rot_mat(new_points).reshape(-1,3,3) # (n_hair_strands, 31 (gaussians per strand), 3, 3)
+            rot_mats_flat = rot_mats.transpose(0, 2, 1).reshape(-1, 9).astype(np.float32)
 
             gaussians.xyz[start:start+g_n_hair_gaussians[i], :] = xyz_curls.reshape(-1,3)
-            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_curls.reshape(-1,4)
+            gaussians.rot[start:start+g_n_hair_gaussians[i], :] = rot_mats_flat
             gaussians.scale[start:start+g_n_hair_gaussians[i], :] = scale_curls.reshape(-1,3)*g_hair_scale[i]
     
     else:
-        gaussians.rot[start:start+g_n_gaussians[i], :] = rot[:g_n_gaussians[i], :]
+        gaussians.rot[start:start+g_n_gaussians[i], :] = utils.util_gau.pad_to_9(rot[:g_n_gaussians[i], :])
         gaussians.scale[start:start+g_n_gaussians[i], :] = scale[:g_n_gaussians[i], :]
     g_means[i] = np.mean(gaussians.xyz[start:start+g_n_gaussians[i]], axis=0)
 

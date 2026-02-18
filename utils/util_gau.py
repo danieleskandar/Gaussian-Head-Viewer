@@ -33,6 +33,22 @@ class GaussianData:
     def get_data(self):
         return np.copy(self.xyz), np.copy(self.rot), np.copy(self.scale), np.copy(self.opacity), np.copy(self.sh)
 
+def pad_to_9(rot_data):
+    # If it's already 9 columns, do nothing
+    if rot_data.shape[-1] == 9:
+        return rot_data
+    
+    # Get all dimensions except the last one
+    # If rot_data is (N, 4), target shape is (N, 5)
+    # If rot_data is (A, B, 4), target shape is (A, B, 5)
+    target_shape = list(rot_data.shape)
+    target_shape[-1] = 5
+    
+    padding = -np.ones(tuple(target_shape), dtype=np.float32)
+    
+    # Concatenate along the last axis
+    return np.concatenate([rot_data, padding], axis=-1)
+
 def naive_gaussian():
     gau_xyz = np.array([
         0, 0, 0,
