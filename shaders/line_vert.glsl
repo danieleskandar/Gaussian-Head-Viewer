@@ -100,7 +100,11 @@ void main()
 	vec4 second_point_screen = projection_matrix * second_point_view;
 	gl_Position = second_point_screen;
 	color = abs(lines);
-	alpha = 1.;
+	if (g_opacity == 0.0) {
+		alpha = 0.0;
+	} else {
+		alpha = 1.0;
+	}
 
 	if (render_mod == -5)
 	{
