@@ -134,20 +134,6 @@ def TNB2qvecs(T, N, B):
 
     return quats_BNT
 
-
-# Normalizes the tangent vectors and if too small fallback
-def normalize_or_fallback(vector):
-    norms = np.linalg.norm(vector, axis=2)
-    norms[norms<1e-8] = 1
-    vector /= norms[:,:,np.newaxis]
-    # Fallback to previous tangent
-    vector[:,1:,:][norms[:,1:]<1e-8] = vector[:,:-1,:][norms[:,:-1]<1e-8]
-    return vector
-
-def interpolate_and_normalize(vector):
-    interpolated_vector = (vector[:,:-1,:] + vector[:,1:,:]) / 2
-    return normalize_or_fallback(interpolated_vector)
-
 def quaternions_multiply(quaternion1, quaternion0):
     w0, x0, y0, z0 = quaternion0.transpose(2, 0, 1)
     w1, x1, y1, z1 = quaternion1.transpose(2, 0, 1)
@@ -162,27 +148,17 @@ def calculate_pts_scal(hair_strands):
     return midpoints, x_scales
 
 def calculate_TNB(hair_strands):
-    T = np.zeros_like(hair_strands)
-    # Approximate Tangent Vectors
-    T[:,1:-1,:] = hair_strands[:,2:,:]-hair_strands[:,:-2,:]
+    T = hair_strands[:,1:,:]-hair_strands[:,:-1,:]
 
-    # Handle start/end points (simple extrapolation)
-    T[:,0,:] = hair_strands[:,1,:] - hair_strands[:,0,:]
-    T[:,-1,:] = hair_strands[:,-1,:] - hair_strands[:,-2,:]
-    # Normalize the tangent vectors and if too small fallback
-    T = normalize_or_fallback(T)
-
-    # Approximate Normal and Binormal Vectors
-    N = np.zeros_like(hair_strands)
-    N[:,:,1] = -T[:,:,2]
-    N[:,:,2] = T[:,:,1]
+    N = np.zeros_like(T)
+    N[:,:,0] = -T[:,:,1]
+    N[:,:,1] = T[:,:,0]
     B = np.cross(T, N)
 
-    # Interpolate and normalize
-    interpolated_T = interpolate_and_normalize(T)
-    interpolated_N = interpolate_and_normalize(N)
-    interpolated_B = interpolate_and_normalize(B)    
-    return interpolated_T, interpolated_N, interpolated_B
+    T = T / np.linalg.norm(T, axis=2, keepdims=True)
+    N = N / np.linalg.norm(N, axis=2, keepdims=True)
+    B = B / np.linalg.norm(B, axis=2, keepdims=True)
+    return T, N, B
 
 def calculate_rot_quat(hair_strands):
     T, N, B = calculate_TNB(hair_strands)
