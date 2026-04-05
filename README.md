@@ -2,7 +2,7 @@
 
 ![Banner image](assets/banner.png)
 
-Gaussian Head Viewer is a lightweight and specialized tool for visualizing dynamic Gaussian splatting models of human heads with hair. Optimized for compatibility with models referenced in _(paper)_, it enables users to explore and manipulate intricate head models with dynamic hair effects. It uses PyOpenGL, keeps dependencies minimal, and does not require a CUDA GPU.
+Gaussian Head Viewer is a lightweight and specialized tool for visualizing dynamic Gaussian splatting models of human heads with hair. Optimized for compatibility with PhysHead avatars, it enables users to explore and manipulate intricate head models with dynamic hair effects. It uses PyOpenGL, keeps dependencies minimal, and does not require a CUDA GPU.
 
 ## Quick Start
 
