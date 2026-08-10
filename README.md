@@ -28,7 +28,7 @@ Refer to the help window for GUI instructions.
 
 ## Models
 
-The Gaussian file loader is compatible with the official implementation and works best with models as described in [PhysHead](https://phys-head.github.io/) (CVPR 2026). Sample models can be downloaded from [here](https://drive.google.com/drive/folders/1n5w7DN0cvJm-dNluiZ87nRfUmLW9yuRE?usp=sharing).
+The Gaussian file loader is compatible with the official implementation and works best with models as described in [PhysHead](https://phys-head.github.io/) (CVPR 2026). Sample models can be downloaded from [here](https://drive.google.com/file/d/176nTqwrEOspfAkH4j9PZ7ZMPuhmhl8V_/view?usp=sharing).
 
 For hair strand files, ensure the gaussians' means, scales, and rotations are the first rows in the `.ply` file. To save the number of hair strands (`n_strands`) and the number of gaussians per strand (`n_gaussians_per_strand`), run the following command:
 
